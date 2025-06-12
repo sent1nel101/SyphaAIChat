@@ -274,6 +274,68 @@ h1 {
     padding: 20px;
 }
 
+/* Welcome message styles */
+.model-info-subtle {
+    font-size: 0.85em;
+    color: #10b981;
+    margin-top: 8px;
+    padding: 4px 8px;
+    background: rgba(16, 185, 129, 0.1);
+    border-radius: 12px;
+    display: inline-block;
+}
+
+/* Dark mode adjustment */
+@media (prefers-color-scheme: dark) {
+    .model-info-subtle {
+        color: #34d399;
+        background: rgba(52, 211, 153, 0.1);
+    }
+}
+
+.model-status {
+    background: rgba(255, 255, 255, 0.15);
+    padding: 12px;
+    border-radius: 8px;
+    margin: 15px 0;
+    border-left: 4px solid #4ade80;
+}
+
+.model-status.error {
+    border-left-color: #f87171;
+    background: rgba(248, 113, 113, 0.1);
+}
+
+.model-status ul {
+    margin: 10px 0;
+    padding-left: 20px;
+}
+
+.model-status li {
+    margin: 5px 0;
+}
+
+.model-status code {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+/* Dark mode adjustments for welcome message */
+@media (prefers-color-scheme: dark) {
+    .welcome-message {
+        background: linear-gradient(135deg, #2d3748 0%, #4a5568 100%);
+        border: 1px solid #4a5568;
+    }
+    
+    .model-status code {
+        background: rgba(255, 255, 255, 0.1);
+        color: #e2e8f0;
+    }
+}
+
 /* Chat Container */
 .chat-container {
     flex: 1;

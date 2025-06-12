@@ -9,8 +9,9 @@ let chatContainer, promptInput, sendButton, modelSelect, fileInput, fileButton, 
 document.addEventListener('DOMContentLoaded', function() {
     initializeElements();
     initializeEventListeners();
-    loadModels(); // This is the crucial call that was missing!
+    loadModels();
     initializeHamburgerMenu();
+    showWelcomeMessage(); // Add welcome message on page load
 });
 
 function initializeElements() {
@@ -108,7 +109,52 @@ function initializeHamburgerMenu() {
     });
 }
 
-// Load models function with better error handling and debugging
+// Show welcome message - Updated to be a simple AI greeting
+function showWelcomeMessage(hasError = false) {
+    if (hasError) {
+        const errorMessage = `⚠️ **Connection Issue**
+
+I'm having trouble connecting to Ollama. Please make sure:
+- Ollama is running (\`ollama serve\`)
+- You have at least one model installed (\`ollama pull llama2\`)
+
+Once that's sorted, I'll be ready to help! 😊`;
+        
+        addMessage(errorMessage, 'assistant');
+        return;
+    }
+
+    const welcomeMessage = `👋 **Hi! I'm Sypha, your AI assistant.**
+
+I'm here to help you with questions, analyze files, write code, and much more. 
+
+Select a model above and let's get started!`;
+    
+    addMessage(welcomeMessage, 'assistant');
+}
+
+// Update welcome message with available models - Simplified
+function updateWelcomeWithModels(models) {
+    // Find the welcome message and add model info subtly
+    const messages = chatContainer.querySelectorAll('.assistant-message');
+    const welcomeMessage = messages[messages.length - 1]; // Get the last assistant message (should be welcome)
+    
+    if (welcomeMessage && models.length > 0) {
+        const modelInfo = document.createElement('div');
+        modelInfo.className = 'model-info-subtle';
+        modelInfo.innerHTML = `✅ ${models.length} model${models.length > 1 ? 's' : ''} available`;
+        
+        // Insert before the timestamp
+        const timestamp = welcomeMessage.querySelector('.message-timestamp');
+        if (timestamp) {
+            welcomeMessage.insertBefore(modelInfo, timestamp);
+        } else {
+            welcomeMessage.appendChild(modelInfo);
+        }
+    }
+}
+
+// Load models function - Updated with simpler error handling
 async function loadModels() {
     const modelSelect = document.getElementById('model-select');
     
@@ -146,6 +192,9 @@ async function loadModels() {
             modelSelect.value = data.models[0];
             console.log(`Loaded ${data.models.length} models:`, data.models);
             
+            // Update welcome message with available models
+            updateWelcomeWithModels(data.models);
+            
         } else {
             throw new Error('No models found in response');
         }
@@ -165,13 +214,9 @@ async function loadModels() {
             modelSelect.appendChild(option);
         });
         
-        // Show error message to user
-        addMessage(`⚠️ Could not load models from Ollama. Please make sure:
-1. Ollama is running (run: ollama serve)
-2. You have models installed (run: ollama pull llama2)
-3. Ollama is accessible at http://localhost:11434
-
-Available fallback models are shown in the dropdown.`, 'system');
+        // Show error in a simple way - replace the welcome message
+        chatContainer.innerHTML = ''; // Clear the welcome message
+        showWelcomeMessage(true); // Show error version
     }
 }
 
@@ -255,7 +300,7 @@ async function sendMessage() {
     }
 }
 
-// Add message to chat
+// Add message to chat - Simplified (removed isWelcome parameter)
 function addMessage(content, role, model = null, hasFile = false, fileName = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}-message`;
@@ -319,7 +364,7 @@ function clearFileSelection() {
     fileInfo.textContent = 'No file selected';
 }
 
-// Session management
+// Session management - Updated to handle welcome message
 async function createNewSession() {
     try {
         const response = await fetch('/api/session/new', {
@@ -341,8 +386,10 @@ async function createNewSession() {
     }
 }
 
+// Clear chat - Updated to show welcome message after clearing
 function clearChat() {
     chatContainer.innerHTML = '';
+    showWelcomeMessage(); // Show welcome message after clearing
 }
 
 // Sessions panel
@@ -416,7 +463,7 @@ async function loadSession(sessionId) {
         const data = await response.json();
         if (data.success) {
             currentSessionId = sessionId;
-            clearChat();
+            clearChatForSession(); // Use different clear function for loading sessions
             
             data.messages.forEach(msg => {
                 addMessage(
@@ -455,3 +502,9 @@ async function deleteSession(sessionId) {
         console.error('Error deleting session:', error);
     }
 }
+
+// Clear chat without welcome message (for loading sessions)
+function clearChatForSession() {
+    chatContainer.innerHTML = '';
+}
+
