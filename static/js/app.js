@@ -128,7 +128,7 @@ Once that's sorted, I'll be ready to help! 😊`;
 
 I'm here to help you with questions, analyze files, write code, and much more. 
 
-Select a model above and let's get started!`;
+Drop a file below or ask me anything to get started!`;
     
     addMessage(welcomeMessage, 'assistant');
 }
