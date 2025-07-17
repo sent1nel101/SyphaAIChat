@@ -1,9 +1,15 @@
+// Import anthropic if needed in future
+// const { ClaudeClient } = require('claude-sdk');
+
 // Global variables
 let currentSessionId = null;
 let isLoading = false;
+let isSplitMode = false;
+let claudeCodeAvailable = false;
 
 // DOM Elements
 let chatContainer, promptInput, sendButton, modelSelect, fileInput, fileButton, fileInfo, filePreview;
+let mainContainer, responseArea, responseContent, closeResponseBtn;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -12,6 +18,9 @@ document.addEventListener('DOMContentLoaded', function() {
     loadModels();
     initializeHamburgerMenu();
     showWelcomeMessage(); // Add welcome message on page load
+    
+    // Check Claude Code status
+    checkClaudeCodeStatus();
 });
 
 function initializeElements() {
@@ -23,6 +32,12 @@ function initializeElements() {
     fileButton = document.getElementById('file-button');
     fileInfo = document.getElementById('file-info');
     filePreview = document.getElementById('file-preview');
+    
+    // Split mode elements
+    mainContainer = document.getElementById('main-container');
+    responseArea = document.getElementById('response-area');
+    responseContent = document.getElementById('response-content');
+    closeResponseBtn = document.getElementById('close-response');
 }
 
 function initializeEventListeners() {
@@ -53,6 +68,20 @@ function initializeEventListeners() {
     document.getElementById('sessions-btn').addEventListener('click', toggleSessionsPanel);
     document.getElementById('clear-btn').addEventListener('click', clearChat);
     document.getElementById('close-sessions').addEventListener('click', closeSessionsPanel);
+    
+    // Split mode controls
+    if (closeResponseBtn) {
+        closeResponseBtn.addEventListener('click', exitSplitMode);
+    }
+    
+    // Model selection handling
+    modelSelect.addEventListener('change', function(e) {
+        const selectedModel = e.target.value;
+        if (!handleClaudeCodeModelSelection(selectedModel)) {
+            // If Claude Code selection was invalid, prevent the change
+            e.preventDefault();
+        }
+    });
 }
 
 // Hamburger menu functionality
@@ -281,8 +310,12 @@ async function sendMessage() {
         console.log('Chat API response data:', data);
         
         if (data.success) {
-            // Add assistant response
+            // Enter split mode when AI responds
+            enterSplitMode();
+            
+            // Add assistant response to both chat and split view
             addMessage(data.message.content, 'assistant', selectedModel);
+            addResponseToSplitView(data.message.formatted_content || data.message.content);
         } else {
             throw new Error(data.error || 'Unknown error occurred');
         }
@@ -300,28 +333,45 @@ async function sendMessage() {
     }
 }
 
-// Add message to chat - Simplified (removed isWelcome parameter)
+// Add message to chat with enhanced formatting support
 function addMessage(content, role, model = null, hasFile = false, fileName = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}-message`;
     
     let messageContent = '';
     
+    // Enhanced file indicator with type detection
     if (hasFile && fileName) {
-        messageContent += `<div class="file-indicator">📎 ${fileName}</div>`;
+        const fileType = getFileType(fileName);
+        const fileIcon = getFileIcon(fileType);
+        messageContent += `<div class="file-indicator ${fileType}">
+            <span class="file-icon">${fileIcon}</span>
+            <span class="file-name">${fileName}</span>
+            <span class="file-type">${fileType.toUpperCase()}</span>
+        </div>`;
     }
     
-    messageContent += `<div class="message-content">${content}</div>`;
+    // Enhanced message content with proper HTML rendering
+    const formattedContent = enhanceMessageContent(content, role);
+    messageContent += `<div class="message-content">${formattedContent}</div>`;
     
     if (model) {
-        messageContent += `<div class="model-info">Model: ${model}</div>`;
+        messageContent += `<div class="model-info">
+            <span class="model-label">Model:</span>
+            <span class="model-name">${model}</span>
+        </div>`;
     }
     
     messageContent += `<div class="message-timestamp">${new Date().toLocaleTimeString()}</div>`;
     
     messageDiv.innerHTML = messageContent;
     chatContainer.appendChild(messageDiv);
-    chatContainer.scrollTop = chatContainer.scrollHeight;
+    
+    // Enhanced scrolling with table handling
+    scrollToBottom();
+    
+    // Post-process tables for better mobile experience
+    enhanceTablesInMessage(messageDiv);
 }
 
 // File handling functions
@@ -353,15 +403,279 @@ function handleFileDrop(event) {
 }
 
 function showFilePreview(file) {
-    document.getElementById('file-preview-name').textContent = file.name;
+    const fileType = getFileType(file.name);
+    const fileIcon = getFileIcon(fileType);
+    const fileSizeKB = (file.size / 1024).toFixed(1);
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
+    const displaySize = file.size > 1024 * 1024 ? `${fileSizeMB} MB` : `${fileSizeKB} KB`;
+    
+    // Enhanced file preview with type-specific information
+    document.getElementById('file-preview-name').innerHTML = `
+        <span class="file-icon">${fileIcon}</span>
+        <span class="file-name">${file.name}</span>
+    `;
+    
     filePreview.style.display = 'block';
-    fileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+    filePreview.className = `file-preview ${fileType}`;
+    
+    // Enhanced file info with processing hints
+    const processingHints = getProcessingHints(fileType);
+    fileInfo.innerHTML = `
+        <div class="file-details">
+            <span class="file-size">Size: ${displaySize}</span>
+            <span class="file-type-label">Type: ${fileType.charAt(0).toUpperCase() + fileType.slice(1)}</span>
+        </div>
+        ${processingHints ? `<div class="processing-hint">${processingHints}</div>` : ''}
+    `;
+}
+
+function getProcessingHints(fileType) {
+    const hints = {
+        'word': 'Will extract text, headings, and tables from the document',
+        'excel': 'Will extract data from all sheets (up to 50 rows per sheet)',
+        'powerpoint': 'Will extract text content from all slides',
+        'pdf': 'Will extract text content from the PDF',
+        'image': 'Will analyze image metadata (use vision-capable models for content analysis)',
+        'csv': 'Will parse and display the data in table format',
+        'json': 'Will format and validate the JSON structure',
+        'javascript': 'Will analyze the code structure and functionality',
+        'python': 'Will analyze the code structure and functionality'
+    };
+    
+    return hints[fileType] || null;
 }
 
 function clearFileSelection() {
     fileInput.value = '';
     filePreview.style.display = 'none';
     fileInfo.textContent = 'No file selected';
+}
+
+// Enhanced file and content handling functions
+function getFileType(fileName) {
+    const extension = fileName.toLowerCase().split('.').pop();
+    const typeMap = {
+        // Office documents
+        'docx': 'word',
+        'doc': 'word',
+        'xlsx': 'excel',
+        'xls': 'excel',
+        'pptx': 'powerpoint',
+        'ppt': 'powerpoint',
+        
+        // Code files
+        'js': 'javascript',
+        'ts': 'typescript',
+        'py': 'python',
+        'html': 'html',
+        'css': 'css',
+        'json': 'json',
+        'xml': 'xml',
+        
+        // Text files
+        'txt': 'text',
+        'md': 'markdown',
+        'csv': 'csv',
+        
+        // Media files
+        'pdf': 'pdf',
+        'png': 'image',
+        'jpg': 'image',
+        'jpeg': 'image',
+        'gif': 'image',
+        'bmp': 'image',
+        'webp': 'image'
+    };
+    
+    return typeMap[extension] || 'file';
+}
+
+function getFileIcon(fileType) {
+    const iconMap = {
+        'word': '📄',
+        'excel': '📊',
+        'powerpoint': '📽️',
+        'pdf': '📕',
+        'image': '🖼️',
+        'javascript': '🟨',
+        'typescript': '🔷',
+        'python': '🐍',
+        'html': '🌐',
+        'css': '🎨',
+        'json': '📋',
+        'xml': '📄',
+        'text': '📝',
+        'markdown': '📝',
+        'csv': '📊',
+        'file': '📎'
+    };
+    
+    return iconMap[fileType] || '📎';
+}
+
+function enhanceMessageContent(content, role) {
+    // If content is already HTML (from backend formatting), return as-is
+    if (content.includes('<') && content.includes('>')) {
+        return content;
+    }
+    
+    // Basic client-side enhancement for unformatted content
+    let enhanced = content;
+    
+    // Convert URLs to links
+    enhanced = enhanced.replace(
+        /(https?:\/\/[^\s]+)/g, 
+        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
+    
+    // Convert line breaks to proper HTML
+    enhanced = enhanced.replace(/\n/g, '<br>');
+    
+    return enhanced;
+}
+
+function scrollToBottom() {
+    // Smooth scroll to bottom with animation
+    chatContainer.scrollTo({
+        top: chatContainer.scrollHeight,
+        behavior: 'smooth'
+    });
+}
+
+function enhanceTablesInMessage(messageDiv) {
+    const tables = messageDiv.querySelectorAll('table, .formatted-table');
+    
+    tables.forEach(table => {
+        // Add responsive wrapper for mobile
+        if (!table.parentElement.classList.contains('table-wrapper')) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'table-wrapper';
+            table.parentNode.insertBefore(wrapper, table);
+            wrapper.appendChild(table);
+        }
+        
+        // Add hover effects to rows
+        const rows = table.querySelectorAll('tr');
+        rows.forEach(row => {
+            row.addEventListener('mouseenter', () => {
+                row.style.backgroundColor = getComputedStyle(row).getPropertyValue('--hover-color') || '#f1f3f5';
+            });
+            
+            row.addEventListener('mouseleave', () => {
+                row.style.backgroundColor = '';
+            });
+        });
+        
+        // Add click-to-copy functionality for table cells
+        const cells = table.querySelectorAll('td, th');
+        cells.forEach(cell => {
+            cell.addEventListener('dblclick', () => {
+                copyToClipboard(cell.textContent);
+                showTooltip(cell, 'Copied!');
+            });
+        });
+    });
+}
+
+function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text);
+    } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+    }
+}
+
+function showTooltip(element, message) {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'tooltip';
+    tooltip.textContent = message;
+    tooltip.style.cssText = `
+        position: absolute;
+        background: #333;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        z-index: 1000;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s;
+    `;
+    
+    document.body.appendChild(tooltip);
+    
+    const rect = element.getBoundingClientRect();
+    tooltip.style.left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2) + 'px';
+    tooltip.style.top = rect.top - tooltip.offsetHeight - 5 + 'px';
+    
+    setTimeout(() => tooltip.style.opacity = '1', 10);
+    
+    setTimeout(() => {
+        tooltip.style.opacity = '0';
+        setTimeout(() => tooltip.remove(), 300);
+    }, 2000);
+}
+
+// Split mode functionality
+function enterSplitMode() {
+    if (isSplitMode) return;
+    
+    isSplitMode = true;
+    mainContainer.classList.add('split-mode');
+    responseArea.style.display = 'block';
+    
+    // Add smooth transition
+    mainContainer.style.transition = 'all 0.3s ease';
+}
+
+function exitSplitMode() {
+    if (!isSplitMode) return;
+    
+    isSplitMode = false;
+    mainContainer.classList.remove('split-mode');
+    
+    // Hide response area after transition
+    setTimeout(() => {
+        if (!isSplitMode) {
+            responseArea.style.display = 'none';
+            responseContent.innerHTML = '';
+        }
+    }, 300);
+}
+
+function addResponseToSplitView(content, isLatest = true) {
+    if (!isSplitMode) return;
+    
+    const responseDiv = document.createElement('div');
+    responseDiv.className = `response-message ${isLatest ? 'latest' : ''}`;
+    
+    // Use the same enhanced content formatting
+    const formattedContent = enhanceMessageContent(content, 'assistant');
+    responseDiv.innerHTML = formattedContent;
+    
+    // Remove 'latest' class from previous responses
+    const previousLatest = responseContent.querySelector('.response-message.latest');
+    if (previousLatest && isLatest) {
+        previousLatest.classList.remove('latest');
+    }
+    
+    responseContent.appendChild(responseDiv);
+    
+    // Post-process tables for better display
+    enhanceTablesInMessage(responseDiv);
+    
+    // Scroll to the latest response
+    responseDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Session management - Updated to handle welcome message
@@ -377,6 +691,7 @@ async function createNewSession() {
         const data = await response.json();
         if (data.success) {
             currentSessionId = data.session_id;
+            exitSplitMode(); // Exit split mode for new session
             clearChat();
             addMessage('🎉 New chat session started!', 'system');
         }
@@ -389,6 +704,7 @@ async function createNewSession() {
 // Clear chat - Updated to show welcome message after clearing
 function clearChat() {
     chatContainer.innerHTML = '';
+    exitSplitMode(); // Exit split mode when clearing chat
     showWelcomeMessage(); // Show welcome message after clearing
 }
 
@@ -506,5 +822,76 @@ async function deleteSession(sessionId) {
 // Clear chat without welcome message (for loading sessions)
 function clearChatForSession() {
     chatContainer.innerHTML = '';
+}
+
+// Claude Code integration functions
+async function checkClaudeCodeStatus() {
+    try {
+        const response = await fetch('/api/claude-code/status');
+        const data = await response.json();
+        
+        if (data.success) {
+            claudeCodeAvailable = data.available;
+            return data;
+        }
+        return { available: false, sdk_installed: false, has_api_key: false };
+    } catch (error) {
+        console.error('Error checking Claude Code status:', error);
+        return { available: false, sdk_installed: false, has_api_key: false };
+    }
+}
+
+async function setupClaudeCodeApiKey() {
+    const apiKey = prompt('Enter your Claude Code API key:');
+    
+    if (!apiKey || !apiKey.trim()) {
+        return false;
+    }
+    
+    try {
+        const response = await fetch('/api/claude-code/api-key', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ api_key: apiKey.trim() })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            claudeCodeAvailable = data.available;
+            addMessage(`✅ Claude Code API key set successfully! You can now use Claude Code model.`, 'system');
+            // Reload models to show Claude Code as available
+            loadModels();
+            return true;
+        } else {
+            addMessage(`❌ Failed to set Claude Code API key: ${data.error}`, 'system');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error setting Claude Code API key:', error);
+        addMessage(`❌ Error setting Claude Code API key: ${error.message}`, 'system');
+        return false;
+    }
+}
+
+function handleClaudeCodeModelSelection(selectedModel) {
+    // If Claude Code model is selected but not available, prompt for API key
+    if (selectedModel === 'claude-code' && !claudeCodeAvailable) {
+        const message = `Claude Code requires an API key. Would you like to set it up now?`;
+        
+        if (confirm(message)) {
+            setupClaudeCodeApiKey();
+        } else {
+            // Reset to first available model
+            const firstModel = modelSelect.options[0]?.value || '';
+            if (firstModel && firstModel !== 'claude-code') {
+                modelSelect.value = firstModel;
+            }
+        }
+        return false;
+    }
+    return true;
 }
 

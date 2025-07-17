@@ -8,38 +8,112 @@ import os
 import re
 from werkzeug.utils import secure_filename
 import mimetypes
+from pathlib import Path
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("+ Environment variables loaded from .env file")
+except ImportError:
+    print("WARNING: python-dotenv not installed. .env file not loaded.")
+
+# Claude Code SDK integration
+try:
+    from claude_code_sdk import query, ClaudeCodeOptions, Message
+    import anyio
+    CLAUDE_CODE_AVAILABLE = True
+    print("+ Claude Code SDK enabled")
+except ImportError:
+    CLAUDE_CODE_AVAILABLE = False
+    print("WARNING: claude-code-sdk not installed. Claude Code features disabled.")
+
+
+# claude implementation
+# import anyio
+# from claude_code_sdk import query, ClaudeCodeOptions, Message
+
+# async def main():
+    
+#     options = ClaudeCodeOptions(
+#     max_turns=3,
+#     system_prompt="You are a helpful assistant",
+#     cwd=Path("/"),
+#     allowed_tools=["Read", "Write", "Bash"],
+#     permission_mode="acceptEdits"
+#     )
+
+#     async for message in query(prompt="Hello", options=options):
+#         print(message)
+
+#     messages: list[Message] = []
+    
+#     async for message in query(
+#         prompt="Write a haiku about foo.py",
+#         options=ClaudeCodeOptions(max_turns=3)
+#     ):
+#         messages.append(message)
+    
+#     print(messages)
+    
+
+# anyio.run(main)
 # Try to import optional dependencies with better error handling
 try:
     import markdown
     MARKDOWN_AVAILABLE = True
-    print("✓ Markdown support enabled")
+    print("+ Markdown support enabled")
 except ImportError:
     MARKDOWN_AVAILABLE = False
-    print("⚠ Warning: markdown not installed. Using basic formatting.")
+    print("WARNING: markdown not installed. Using basic formatting.")
 
 try:
     # Try new pypdf first, then fall back to PyPDF2
     try:
         import pypdf as PyPDF2
         PDF_AVAILABLE = True
-        print("✓ PDF support enabled (using pypdf)")
+        print("+ PDF support enabled (using pypdf)")
     except ImportError:
         import PyPDF2
         PDF_AVAILABLE = True
-        print("✓ PDF support enabled (using PyPDF2)")
+        print("+ PDF support enabled (using PyPDF2)")
 except ImportError:
     PDF_AVAILABLE = False
-    print("⚠ Warning: PDF library not installed. PDF support disabled.")
+    print("WARNING: PDF library not installed. PDF support disabled.")
 
 try:
     from PIL import Image
     import io
     IMAGE_AVAILABLE = True
-    print("✓ Image processing enabled")
+    print("+ Image processing enabled")
 except ImportError:
     IMAGE_AVAILABLE = False
-    print("⚠ Warning: Pillow not installed. Image processing disabled.")
+    print("WARNING: Pillow not installed. Image processing disabled.")
+
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+    print("+ Word document support enabled")
+except ImportError:
+    DOCX_AVAILABLE = False
+    print("WARNING: python-docx not installed. Word document support disabled.")
+
+try:
+    import openpyxl
+    import xlrd
+    EXCEL_AVAILABLE = True
+    print("+ Excel support enabled")
+except ImportError:
+    EXCEL_AVAILABLE = False
+    print("WARNING: openpyxl/xlrd not installed. Excel support disabled.")
+
+try:
+    from pptx import Presentation
+    PPTX_AVAILABLE = True
+    print("+ PowerPoint support enabled")
+except ImportError:
+    PPTX_AVAILABLE = False
+    print("WARNING: python-pptx not installed. PowerPoint support disabled.")
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-change-this-in-production'
@@ -47,6 +121,10 @@ app.secret_key = 'your-secret-key-change-this-in-production'
 # Ollama configuration
 OLLAMA_BASE_URL = 'http://localhost:11434'
 DEFAULT_MODELS = ['llama2', 'codellama', 'mistral']
+
+# Claude Code configuration
+CLAUDE_CODE_API_KEY = os.getenv('CLAUDE_CODE_API_KEY', '')  # Will be set later
+CLAUDE_CODE_MODEL = 'claude-code'
 
 # File upload configuration
 UPLOAD_FOLDER = 'uploads'
@@ -60,6 +138,14 @@ if PDF_AVAILABLE:
     ALLOWED_EXTENSIONS.add('pdf')
 if IMAGE_AVAILABLE:
     ALLOWED_EXTENSIONS.update({'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'})
+
+# Add Office document extensions only if libraries are available
+if DOCX_AVAILABLE:
+    ALLOWED_EXTENSIONS.add('docx')
+if EXCEL_AVAILABLE:
+    ALLOWED_EXTENSIONS.update({'xlsx', 'xls'})
+if PPTX_AVAILABLE:
+    ALLOWED_EXTENSIONS.add('pptx')
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
@@ -110,6 +196,88 @@ class OllamaClient:
 # Initialize Ollama client
 ollama_client = OllamaClient()
 
+class ClaudeCodeClient:
+    def __init__(self, api_key=None):
+        self.api_key = api_key or CLAUDE_CODE_API_KEY
+        self.available = CLAUDE_CODE_AVAILABLE and bool(self.api_key)
+    
+    async def chat(self, messages, tools=None):
+        """Send chat request to Claude Code"""
+        if not self.available:
+            raise Exception("Claude Code not available. Check API key and SDK installation.")
+        
+        if not self.api_key:
+            raise Exception("Claude Code API key not set. Please add CLAUDE_CODE_API_KEY to your .env file.")
+        
+        if len(self.api_key) < 50:  # Anthropic API keys are typically longer
+            raise Exception(f"Claude Code API key appears invalid (length: {len(self.api_key)}). Please check your .env file.")
+        
+        try:
+            # Ensure API key is set in environment for Claude Code SDK
+            import os
+            os.environ['ANTHROPIC_API_KEY'] = self.api_key
+            
+            # Convert messages to the format expected by Claude Code SDK
+            prompt = self._format_messages(messages)
+            print(f"DEBUG: Formatted prompt for Claude Code: {prompt[:100]}...")
+            
+            options = ClaudeCodeOptions(
+                max_turns=3,
+                system_prompt="You are a helpful AI assistant with access to powerful tools for code analysis, file processing, and data manipulation.",
+                cwd=Path("."),
+                allowed_tools=tools or ["Read", "Write", "Bash", "Grep"],
+                permission_mode="acceptEdits"
+            )
+            
+            print("DEBUG: Calling Claude Code SDK query...")
+            response_content = ""
+            async for message in query(prompt=prompt, options=options):
+                print(f"DEBUG: Received message: {type(message)} - {str(message)[:100]}...")
+                if hasattr(message, 'content'):
+                    # Handle list of TextBlock objects
+                    if isinstance(message.content, list):
+                        for block in message.content:
+                            if hasattr(block, 'text'):
+                                response_content += block.text
+                            else:
+                                response_content += str(block)
+                    else:
+                        response_content += str(message.content)
+                elif isinstance(message, str):
+                    response_content += message
+                else:
+                    response_content += str(message)
+            
+            print(f"DEBUG: Final response content: {len(response_content)} chars")
+            
+            return {
+                "message": {
+                    "content": response_content,
+                    "role": "assistant"
+                }
+            }
+            
+        except Exception as e:
+            print(f"DEBUG: Claude Code exception: {str(e)}")
+            raise Exception(f"Claude Code request failed: {str(e)}")
+    
+    def _format_messages(self, messages):
+        """Convert message history to a single prompt for Claude Code"""
+        if not messages:
+            return ""
+        
+        # Get the last user message as the main prompt
+        last_message = messages[-1] if messages else {}
+        return last_message.get('content', '')
+    
+    def set_api_key(self, api_key):
+        """Set the API key and update availability"""
+        self.api_key = api_key
+        self.available = CLAUDE_CODE_AVAILABLE and bool(self.api_key)
+
+# Initialize Claude Code client
+claude_code_client = ClaudeCodeClient()
+
 class FileProcessor:
     def __init__(self):
         pass
@@ -123,6 +291,12 @@ class FileProcessor:
                 return self._process_pdf(file_path)
             elif mime_type.startswith('image/') and IMAGE_AVAILABLE:
                 return self._process_image(file_path, filename)
+            elif filename.endswith('.docx') and DOCX_AVAILABLE:
+                return self._process_word_document(file_path, filename)
+            elif filename.endswith(('.xlsx', '.xls')) and EXCEL_AVAILABLE:
+                return self._process_excel_file(file_path, filename)
+            elif filename.endswith('.pptx') and PPTX_AVAILABLE:
+                return self._process_powerpoint(file_path, filename)
             else:
                 return f"File uploaded: {filename} (content extraction not supported for this file type)"
         except Exception as e:
@@ -173,6 +347,142 @@ class FileProcessor:
                 return f"Image file: {filename}\nDimensions: {width}x{height}\nFormat: {format_name}\nMode: {mode}\n\nNote: For image analysis, please use a vision-capable model like llava."
         except Exception as e:
             return f"Error processing image: {str(e)}"
+    
+    def _process_word_document(self, file_path, filename):
+        """Extract text and formatting from Word documents"""
+        if not DOCX_AVAILABLE:
+            return "Word document processing not available (python-docx not installed)"
+        
+        try:
+            doc = Document(file_path)
+            content = []
+            
+            content.append(f"Word Document: {filename}\n")
+            content.append("=" * 50 + "\n")
+            
+            for paragraph in doc.paragraphs:
+                if paragraph.text.strip():
+                    # Basic formatting detection
+                    text = paragraph.text
+                    if paragraph.style.name.startswith('Heading'):
+                        content.append(f"## {text}\n")
+                    else:
+                        content.append(f"{text}\n")
+            
+            # Extract tables if present
+            if doc.tables:
+                content.append("\n**Tables found in document:**\n")
+                for i, table in enumerate(doc.tables):
+                    content.append(f"\nTable {i+1}:\n")
+                    for row in table.rows:
+                        row_text = " | ".join([cell.text.strip() for cell in row.cells])
+                        content.append(f"| {row_text} |\n")
+            
+            return "".join(content) if content else "Word document processed but no content could be extracted"
+            
+        except Exception as e:
+            return f"Error reading Word document: {str(e)}"
+    
+    def _process_excel_file(self, file_path, filename):
+        """Extract data from Excel files"""
+        if not EXCEL_AVAILABLE:
+            return "Excel processing not available (openpyxl/xlrd not installed)"
+        
+        try:
+            content = []
+            content.append(f"Excel File: {filename}\n")
+            content.append("=" * 50 + "\n")
+            
+            if filename.endswith('.xlsx'):
+                # Use openpyxl for .xlsx files
+                workbook = openpyxl.load_workbook(file_path, data_only=True)
+                
+                for sheet_name in workbook.sheetnames:
+                    sheet = workbook[sheet_name]
+                    content.append(f"\n**Sheet: {sheet_name}**\n")
+                    
+                    # Get data from sheet (limit to prevent huge outputs)
+                    max_rows = min(sheet.max_row, 50)  # Limit to 50 rows
+                    max_cols = min(sheet.max_column, 20)  # Limit to 20 columns
+                    
+                    for row in range(1, max_rows + 1):
+                        row_data = []
+                        for col in range(1, max_cols + 1):
+                            cell_value = sheet.cell(row=row, column=col).value
+                            if cell_value is not None:
+                                row_data.append(str(cell_value))
+                            else:
+                                row_data.append("")
+                        
+                        if any(cell.strip() for cell in row_data):  # Only add non-empty rows
+                            content.append(f"| {' | '.join(row_data)} |\n")
+                    
+                    if sheet.max_row > 50:
+                        content.append(f"\n... (showing first 50 of {sheet.max_row} rows)\n")
+            
+            else:
+                # Use xlrd for .xls files
+                workbook = xlrd.open_workbook(file_path)
+                
+                for sheet_index in range(workbook.nsheets):
+                    sheet = workbook.sheet_by_index(sheet_index)
+                    content.append(f"\n**Sheet: {sheet.name}**\n")
+                    
+                    # Limit rows and columns
+                    max_rows = min(sheet.nrows, 50)
+                    max_cols = min(sheet.ncols, 20)
+                    
+                    for row in range(max_rows):
+                        row_data = []
+                        for col in range(max_cols):
+                            cell_value = sheet.cell_value(row, col)
+                            row_data.append(str(cell_value) if cell_value else "")
+                        
+                        if any(cell.strip() for cell in row_data):
+                            content.append(f"| {' | '.join(row_data)} |\n")
+                    
+                    if sheet.nrows > 50:
+                        content.append(f"\n... (showing first 50 of {sheet.nrows} rows)\n")
+            
+            return "".join(content) if content else "Excel file processed but no data could be extracted"
+            
+        except Exception as e:
+            return f"Error reading Excel file: {str(e)}"
+    
+    def _process_powerpoint(self, file_path, filename):
+        """Extract text from PowerPoint presentations"""
+        if not PPTX_AVAILABLE:
+            return "PowerPoint processing not available (python-pptx not installed)"
+        
+        try:
+            prs = Presentation(file_path)
+            content = []
+            
+            content.append(f"PowerPoint Presentation: {filename}\n")
+            content.append("=" * 50 + "\n")
+            content.append(f"Total slides: {len(prs.slides)}\n\n")
+            
+            for i, slide in enumerate(prs.slides, 1):
+                content.append(f"**Slide {i}:**\n")
+                
+                # Extract text from all shapes
+                slide_text = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_text.append(shape.text.strip())
+                
+                if slide_text:
+                    for text in slide_text:
+                        content.append(f"- {text}\n")
+                else:
+                    content.append("- (No text content)\n")
+                
+                content.append("\n")
+            
+            return "".join(content) if content else "PowerPoint file processed but no content could be extracted"
+            
+        except Exception as e:
+            return f"Error reading PowerPoint file: {str(e)}"
 
 class ResponseFormatter:
     def __init__(self):
@@ -184,7 +494,7 @@ class ResponseFormatter:
             try:
                 formatted = markdown.markdown(
                     text,
-                    extensions=['codehilite', 'fenced_code', 'tables']
+                    extensions=['codehilite', 'fenced_code', 'tables', 'attr_list']
                 )
                 return self._enhance_formatting(formatted)
             except Exception as e:
@@ -200,20 +510,38 @@ class ResponseFormatter:
         # Escape HTML first
         text = html.escape(text)
         
+        # Handle tables (basic pipe table format)
+        text = self._format_tables(text)
+        
         # Handle code blocks
         text = re.sub(r'```(\w+)?\n(.*?)\n```', r'<pre><code class="language-\1">\2</code></pre>', text, flags=re.DOTALL)
         
         # Handle inline code
         text = re.sub(r'`([^`]+)`', r'<code>\1</code>', text)
         
-        # Handle bold and italic
-        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
-        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+        # Handle bold and italic (enhanced)
+        text = re.sub(r'\*\*\*(.+?)\*\*\*', r'<strong><em>\1</em></strong>', text)  # Bold + italic
+        text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)  # Bold
+        text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)  # Italic
+        text = re.sub(r'__(.+?)__', r'<u>\1</u>', text)  # Underline
+        
+        # Handle strikethrough
+        text = re.sub(r'~~(.+?)~~', r'<del>\1</del>', text)
         
         # Handle headers
+        text = re.sub(r'^#### (.+)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
         text = re.sub(r'^### (.+)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
         text = re.sub(r'^## (.+)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
         text = re.sub(r'^# (.+)$', r'<h1>\1</h1>', text, flags=re.MULTILINE)
+        
+        # Handle lists
+        text = self._format_lists(text)
+        
+        # Handle links
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2" target="_blank">\1</a>', text)
+        
+        # Handle emojis and icons (preserve common ones)
+        text = self._preserve_emojis(text)
         
         # Handle paragraphs
         text = text.replace('\n\n', '</p><p>')
@@ -230,6 +558,162 @@ class ResponseFormatter:
         text = re.sub(r'</p>', r'</p>\n', text)
         text = re.sub(r'</ul>', r'</ul>\n', text)
         text = re.sub(r'</ol>', r'</ol>\n', text)
+        
+        # Enhance table styling
+        text = re.sub(r'<table>', r'<table class="formatted-table">', text)
+        
+        # Add icons and emojis back
+        text = self._restore_emojis(text)
+        
+        return text
+    
+    def _format_tables(self, text):
+        """Convert pipe tables to HTML tables"""
+        lines = text.split('\n')
+        result = []
+        in_table = False
+        table_rows = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Check if this is a table row (contains pipes and content)
+            if '|' in stripped and len(stripped.split('|')) > 2:
+                # Remove leading/trailing empty cells
+                cells = [cell.strip() for cell in stripped.split('|')]
+                if cells[0] == '':
+                    cells = cells[1:]
+                if cells and cells[-1] == '':
+                    cells = cells[:-1]
+                
+                if cells:  # Only process if we have actual content
+                    if not in_table:
+                        in_table = True
+                        table_rows = []
+                    
+                    # Skip separator rows (containing only -, |, :, and spaces)
+                    if not re.match(r'^[\s\-\|\:]+$', stripped):
+                        table_rows.append(cells)
+            else:
+                # End of table
+                if in_table and table_rows:
+                    result.append(self._build_html_table(table_rows))
+                    table_rows = []
+                    in_table = False
+                
+                result.append(line)
+        
+        # Handle table at end of text
+        if in_table and table_rows:
+            result.append(self._build_html_table(table_rows))
+        
+        return '\n'.join(result)
+    
+    def _build_html_table(self, rows):
+        """Build an HTML table from rows of cells"""
+        if not rows:
+            return ''
+        
+        table_html = ['<table class="formatted-table">']
+        
+        # First row as header if it looks like headers
+        first_row = rows[0]
+        if len(rows) > 1 and any(cell.isupper() or ':' in cell for cell in first_row):
+            table_html.append('<thead><tr>')
+            for cell in first_row:
+                table_html.append(f'<th>{cell}</th>')
+            table_html.append('</tr></thead>')
+            body_rows = rows[1:]
+        else:
+            body_rows = rows
+        
+        # Body rows
+        if body_rows:
+            table_html.append('<tbody>')
+            for row in body_rows:
+                table_html.append('<tr>')
+                for cell in row:
+                    table_html.append(f'<td>{cell}</td>')
+                table_html.append('</tr>')
+            table_html.append('</tbody>')
+        
+        table_html.append('</table>')
+        return '\n'.join(table_html)
+    
+    def _format_lists(self, text):
+        """Convert markdown-style lists to HTML lists"""
+        lines = text.split('\n')
+        result = []
+        in_ul = False
+        in_ol = False
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Unordered list
+            if re.match(r'^[\*\-\+]\s+', stripped):
+                if not in_ul:
+                    if in_ol:
+                        result.append('</ol>')
+                        in_ol = False
+                    result.append('<ul>')
+                    in_ul = True
+                
+                content = re.sub(r'^[\*\-\+]\s+', '', stripped)
+                result.append(f'<li>{content}</li>')
+            
+            # Ordered list
+            elif re.match(r'^\d+\.\s+', stripped):
+                if not in_ol:
+                    if in_ul:
+                        result.append('</ul>')
+                        in_ul = False
+                    result.append('<ol>')
+                    in_ol = True
+                
+                content = re.sub(r'^\d+\.\s+', '', stripped)
+                result.append(f'<li>{content}</li>')
+            
+            else:
+                # End lists
+                if in_ul:
+                    result.append('</ul>')
+                    in_ul = False
+                if in_ol:
+                    result.append('</ol>')
+                    in_ol = False
+                
+                result.append(line)
+        
+        # Close any open lists
+        if in_ul:
+            result.append('</ul>')
+        if in_ol:
+            result.append('</ol>')
+        
+        return '\n'.join(result)
+    
+    def _preserve_emojis(self, text):
+        """Preserve common emojis and icons during HTML escaping"""
+        # Common emojis that should be preserved
+        emoji_map = {
+            '&amp;#x2713;': '✓',  # checkmark
+            '&amp;#x2717;': '✗',  # cross mark
+            '&amp;#x2192;': '→',  # right arrow
+            '&amp;#x2190;': '←',  # left arrow
+            '&amp;#x2191;': '↑',  # up arrow
+            '&amp;#x2193;': '↓',  # down arrow
+        }
+        
+        for escaped, emoji in emoji_map.items():
+            text = text.replace(escaped, emoji)
+        
+        return text
+    
+    def _restore_emojis(self, text):
+        """Restore emojis after markdown processing"""
+        # This method can be used to restore emojis that might have been
+        # processed incorrectly by markdown
         return text
 
 formatter = ResponseFormatter()
@@ -243,10 +727,14 @@ def enhance_prompt(user_message):
     return f"""{user_message}
 
 Please format your response professionally using:
-- **Bold text** for emphasis
-- `code snippets` for technical terms
+- **Bold text** for emphasis and important points
+- *Italic text* for explanations or definitions
+- `code snippets` for technical terms and functions
 - ```language blocks``` for code examples
-- Clear headings and bullet points where appropriate"""
+- ## Headings for organizing content
+- Tables with | pipes | for | structured data |
+- Bullet points and numbered lists for clarity
+- Links [like this](url) when referencing external resources"""
 
 def enhance_prompt_with_file(user_message, file_content, filename):
     """Add file context to user prompt"""
@@ -258,10 +746,15 @@ File content:
 User question: {user_message}
 
 Please analyze this file and respond to my question. Format your response professionally using:
-- **Bold text** for emphasis
-- `code snippets` for technical terms  
+- **Bold text** for emphasis and important findings
+- *Italic text* for explanations or definitions
+- `code snippets` for technical terms and functions
 - ```language blocks``` for code examples
-- Clear headings and bullet points where appropriate"""
+- ## Headings to organize your analysis
+- Tables with | pipes | for | data summary | or | comparisons |
+- Bullet points and numbered lists for clarity
+- Links [like this](url) when referencing external resources
+- When analyzing spreadsheet data, present key findings in table format"""
 
 # Database functions (same as before)
 def get_db():
@@ -314,7 +807,9 @@ def init_db():
 # Routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Generate file accept attribute from allowed extensions
+    file_accept = ','.join(f'.{ext}' for ext in sorted(ALLOWED_EXTENSIONS))
+    return render_template('index.html', file_accept=file_accept)
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -385,14 +880,28 @@ def chat():
         else:
             enhanced_message = enhance_prompt(user_message)
         
-        # Prepare messages for Ollama
+        # Prepare messages for AI model
         messages = recent_messages[:-1]  # Exclude the current message
         messages.append({'role': 'user', 'content': enhanced_message})
         
-        # Send to Ollama
+        # Determine which AI service to use
         try:
-            response = ollama_client.chat(model, messages)
-            assistant_message = response.get('message', {}).get('content', 'No response received')
+            if model == CLAUDE_CODE_MODEL and claude_code_client.available:
+                # Send to Claude Code (async)
+                print(f"DEBUG: Sending to Claude Code with {len(messages)} messages")
+                print(f"DEBUG: Claude Code client API key length: {len(claude_code_client.api_key) if claude_code_client.api_key else 0}")
+                
+                async def claude_chat():
+                    return await claude_code_client.chat(messages, ["Read", "Write", "Bash", "Grep"])
+                
+                response = anyio.run(claude_chat)
+                assistant_message = response.get('message', {}).get('content', 'No response received')
+                print(f"DEBUG: Claude Code response received: {len(assistant_message)} chars")
+            else:
+                # Send to Ollama
+                print(f"DEBUG: Sending to Ollama model: {model}")
+                response = ollama_client.chat(model, messages)
+                assistant_message = response.get('message', {}).get('content', 'No response received')
             
             # Save assistant response to database
             add_message(session_id, 'assistant', assistant_message, model)
@@ -410,6 +919,12 @@ def chat():
             
         except Exception as e:
             error_message = str(e)
+            print(f"ERROR: Chat endpoint exception: {error_message}")
+            print(f"ERROR: Model was: {model}")
+            print(f"ERROR: Claude Code available: {claude_code_client.available}")
+            import traceback
+            traceback.print_exc()
+            
             add_message(session_id, 'assistant', f"Error: {error_message}", model)
             return jsonify({'success': False, 'error': error_message}), 500
             
@@ -427,11 +942,21 @@ def get_models():
         
         # If no models found, return default models
         if not models:
-            models = DEFAULT_MODELS
+            models = DEFAULT_MODELS.copy()
+        
+        # Add Claude Code if available
+        if claude_code_client.available:
+            models.append(CLAUDE_CODE_MODEL)
+        elif CLAUDE_CODE_AVAILABLE:
+            # Show Claude Code as disabled if SDK is available but no API key
+            models.append(f"{CLAUDE_CODE_MODEL} (API key required)")
             
         return jsonify({'success': True, 'models': models})
     except Exception as e:
-        return jsonify({'success': True, 'models': DEFAULT_MODELS})
+        models = DEFAULT_MODELS.copy()
+        if claude_code_client.available:
+            models.append(CLAUDE_CODE_MODEL)
+        return jsonify({'success': True, 'models': models})
 
 @app.route('/api/sessions', methods=['GET'])
 def get_sessions():
@@ -519,6 +1044,41 @@ def new_session():
         new_session_id = create_session()
         session['session_id'] = new_session_id
         return jsonify({'success': True, 'session_id': new_session_id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/claude-code/api-key', methods=['POST'])
+def set_claude_api_key():
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key', '').strip()
+        
+        if not api_key:
+            return jsonify({'success': False, 'error': 'API key is required'}), 400
+        
+        # Set the API key for Claude Code client
+        claude_code_client.set_api_key(api_key)
+        
+        # Store in environment variable for this session
+        os.environ['CLAUDE_CODE_API_KEY'] = api_key
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Claude Code API key set successfully',
+            'available': claude_code_client.available
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/claude-code/status', methods=['GET'])
+def get_claude_status():
+    try:
+        return jsonify({
+            'success': True,
+            'available': claude_code_client.available,
+            'sdk_installed': CLAUDE_CODE_AVAILABLE,
+            'has_api_key': bool(claude_code_client.api_key)
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -675,46 +1235,101 @@ def internal_error(e):
     return jsonify({'success': False, 'error': 'Internal server error'}), 500
 
 # Initialize database on startup
+def safe_print(text):
+    """Print text with Unicode fallback for Windows terminals"""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        # Remove emojis and special characters for Windows compatibility
+        fallback = text.replace("🚀", "").replace("📁", "").replace("🗄️", "").replace("🌐", "")
+        fallback = fallback.replace("🤖", "").replace("✅", "+").replace("❌", "-").replace("⚠️", "!")
+        fallback = fallback.replace("📄", "").replace("⚡", "").replace("🎯", "").replace("📎", "")
+        print(fallback.strip())
+
 def initialize_app():
     """Initialize the application"""
-    print("🚀 Starting Ollama Chat Application...")
-    print(f"📁 Upload folder: {UPLOAD_FOLDER}")
-    print(f"💾 Database: {DATABASE}")
-    print(f"🔗 Ollama URL: {OLLAMA_BASE_URL}")
+    safe_print("🚀 Starting Sypha AI Chat Application...")
+    print("=" * 50)
+    safe_print(f"📁 Upload folder: {UPLOAD_FOLDER}")
+    safe_print(f"🗄️  Database: {DATABASE}")
+    safe_print(f"🌐 Ollama URL: {OLLAMA_BASE_URL}")
+    print("")
     
-    # Check feature availability
-    features = []
-    if MARKDOWN_AVAILABLE:
-        features.append("Markdown formatting")
-    if PDF_AVAILABLE:
-        features.append("PDF processing")
-    if IMAGE_AVAILABLE:
-        features.append("Image processing")
+    # Check AI capabilities
+    safe_print("🤖 AI MODELS:")
     
-    if features:
-        print(f"✨ Available features: {', '.join(features)}")
-    else:
-        print("⚠ Running with basic features only")
-    
-    print(f"📎 Allowed file types: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
-    
-    # Initialize database
-    init_db()
-    print("✅ Database initialized")
+    ai_models = []
     
     # Test Ollama connection
     try:
         models = ollama_client.list_models()
         if models.get('models'):
             model_names = [model['name'] for model in models['models']]
-            print(f"🤖 Available models: {', '.join(model_names)}")
+            ai_models.extend(model_names)
+            safe_print(f"   ✅ Ollama: {len(model_names)} models ({', '.join(model_names[:3])}{'...' if len(model_names) > 3 else ''})")
         else:
-            print("⚠ No models found in Ollama. Make sure you have models installed.")
+            safe_print("   ⚠️  Ollama: No models found (install models with: ollama pull llama2)")
     except Exception as e:
-        print(f"⚠ Could not connect to Ollama: {e}")
-        print("Make sure Ollama is running: ollama serve")
+        safe_print(f"   ❌ Ollama: Connection failed ({e})")
+        print("      → Start with: ollama serve")
     
-    print("🎉 Application ready!")
+    # Claude Code status
+    if claude_code_client.available:
+        ai_models.append("claude-code")
+        safe_print("   ✅ Claude Code: Ready with advanced tools")
+    elif CLAUDE_CODE_AVAILABLE:
+        safe_print("   ⚠️  Claude Code: SDK installed, API key required")
+    else:
+        safe_print("   ❌ Claude Code: SDK not available")
+    
+    print("")
+    
+    # Document processing capabilities
+    safe_print("📄 DOCUMENT PROCESSING:")
+    capabilities = []
+    if DOCX_AVAILABLE:
+        capabilities.append("Word (.docx)")
+    if EXCEL_AVAILABLE:
+        capabilities.append("Excel (.xlsx/.xls)")
+    if PPTX_AVAILABLE:
+        capabilities.append("PowerPoint (.pptx)")
+    if PDF_AVAILABLE:
+        capabilities.append("PDF")
+    if IMAGE_AVAILABLE:
+        capabilities.append("Images")
+    
+    if capabilities:
+        for cap in capabilities:
+            safe_print(f"   ✅ {cap}")
+    else:
+        safe_print("   ⚠️  Basic text files only")
+    
+    print("")
+    
+    # Advanced features
+    safe_print("⚡ ADVANCED FEATURES:")
+    if MARKDOWN_AVAILABLE:
+        safe_print("   ✅ Rich text formatting with tables")
+    safe_print("   ✅ Split-screen responsive interface")
+    safe_print("   ✅ File upload and analysis")
+    safe_print("   ✅ Session-based conversation history")
+    safe_print("   ✅ Interactive tables and content")
+    
+    print("")
+    safe_print(f"📎 Supported file types: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+    
+    # Initialize database
+    init_db()
+    safe_print("✅ Database initialized")
+    
+    print("")
+    print("=" * 50)
+    if ai_models:
+        safe_print(f"🎯 Ready! {len(ai_models)} AI model(s) available")
+    else:
+        safe_print("⚠️  Ready with limited functionality (no AI models)")
+    safe_print("🌐 Access the application at: http://localhost:5000")
+    print("=" * 50)
 
 if __name__ == '__main__':
     initialize_app()
