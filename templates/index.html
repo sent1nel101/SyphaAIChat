@@ -32,23 +32,13 @@
                         
                         <div class="control-group">
                             <button id="new-session-btn" class="control-btn">New Chat</button>
-                            <button id="sessions-btn" class="control-btn">Sessions</button>
                             <button id="clear-btn" class="control-btn">Clear</button>
                         </div>
                     </div>
                 </nav>
             </header>
 
-            <!-- Sessions Panel -->
-            <div id="sessions-panel" class="sessions-panel">
-                <div class="sessions-header">
-                    <h3>Chat Sessions</h3>
-                    <button id="close-sessions" class="close-btn">&times;</button>
-                </div>
-                <div id="sessions-list" class="sessions-list">
-                    <div class="loading">Loading sessions...</div>
-                </div>
-            </div>
+
 
             <!-- Chat Container -->
             <div id="chat-container" class="chat-container">
@@ -94,6 +84,9 @@
 
     <!-- Overlay for mobile menu -->
     <div class="menu-overlay" id="menu-overlay"></div>
+    
+    <!-- Modal overlay for code windows -->
+    <div class="modal-overlay" id="modal-overlay"></div>
 
     <script src="../static/js/app.js"></script>
 </body>

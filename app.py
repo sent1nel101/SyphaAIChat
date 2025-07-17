@@ -219,7 +219,6 @@ class ClaudeCodeClient:
             
             # Convert messages to the format expected by Claude Code SDK
             prompt = self._format_messages(messages)
-            print(f"DEBUG: Formatted prompt for Claude Code: {prompt[:100]}...")
             
             options = ClaudeCodeOptions(
                 max_turns=3,
@@ -228,11 +227,17 @@ class ClaudeCodeClient:
                 allowed_tools=tools or ["Read", "Write", "Bash", "Grep"],
                 permission_mode="acceptEdits"
             )
-            
-            print("DEBUG: Calling Claude Code SDK query...")
             response_content = ""
             async for message in query(prompt=prompt, options=options):
-                print(f"DEBUG: Received message: {type(message)} - {str(message)[:100]}...")
+                message_type = type(message).__name__
+                
+                # Filter out system messages and debug output from UI
+                system_message_types = ['SystemMessage', 'DebugMessage', 'InitMessage', 'StatusMessage']
+                
+                if message_type in system_message_types:
+                    print(f"DEBUG: Filtered {message_type}")
+                    continue
+                
                 if hasattr(message, 'content'):
                     # Handle list of TextBlock objects
                     if isinstance(message.content, list):
@@ -246,9 +251,11 @@ class ClaudeCodeClient:
                 elif isinstance(message, str):
                     response_content += message
                 else:
-                    response_content += str(message)
+                    # Only add non-system messages to response
+                    if message_type not in system_message_types:
+                        response_content += str(message)
             
-            print(f"DEBUG: Final response content: {len(response_content)} chars")
+            print(f"Claude Code response: {len(response_content)} characters")
             
             return {
                 "message": {
@@ -888,18 +895,13 @@ def chat():
         try:
             if model == CLAUDE_CODE_MODEL and claude_code_client.available:
                 # Send to Claude Code (async)
-                print(f"DEBUG: Sending to Claude Code with {len(messages)} messages")
-                print(f"DEBUG: Claude Code client API key length: {len(claude_code_client.api_key) if claude_code_client.api_key else 0}")
-                
                 async def claude_chat():
                     return await claude_code_client.chat(messages, ["Read", "Write", "Bash", "Grep"])
                 
                 response = anyio.run(claude_chat)
                 assistant_message = response.get('message', {}).get('content', 'No response received')
-                print(f"DEBUG: Claude Code response received: {len(assistant_message)} chars")
             else:
                 # Send to Ollama
-                print(f"DEBUG: Sending to Ollama model: {model}")
                 response = ollama_client.chat(model, messages)
                 assistant_message = response.get('message', {}).get('content', 'No response received')
             

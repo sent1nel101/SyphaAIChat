@@ -9,18 +9,20 @@ let claudeCodeAvailable = false;
 
 // DOM Elements
 let chatContainer, promptInput, sendButton, modelSelect, fileInput, fileButton, fileInfo, filePreview;
-let mainContainer, responseArea, responseContent, closeResponseBtn;
+let mainContainer, responseArea, responseContent, closeResponseBtn, modalOverlay;
 
 // Initialize the application
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     initializeElements();
     initializeEventListeners();
     loadModels();
     initializeHamburgerMenu();
     showWelcomeMessage(); // Add welcome message on page load
-    
+
     // Check Claude Code status
     checkClaudeCodeStatus();
+
+
 });
 
 function initializeElements() {
@@ -32,18 +34,21 @@ function initializeElements() {
     fileButton = document.getElementById('file-button');
     fileInfo = document.getElementById('file-info');
     filePreview = document.getElementById('file-preview');
-    
+
     // Split mode elements
     mainContainer = document.getElementById('main-container');
     responseArea = document.getElementById('response-area');
     responseContent = document.getElementById('response-content');
     closeResponseBtn = document.getElementById('close-response');
+
+    // Modal overlay elements
+    modalOverlay = document.getElementById('modal-overlay');
 }
 
 function initializeEventListeners() {
     // Send button and enter key
     sendButton.addEventListener('click', sendMessage);
-    promptInput.addEventListener('keydown', function(e) {
+    promptInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
@@ -53,7 +58,7 @@ function initializeEventListeners() {
     // File upload
     fileButton.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', handleFileSelect);
-    
+
     // File drag and drop
     const fileUploadArea = document.getElementById('file-upload-area');
     fileUploadArea.addEventListener('dragover', handleDragOver);
@@ -65,17 +70,15 @@ function initializeEventListeners() {
 
     // Control buttons
     document.getElementById('new-session-btn').addEventListener('click', createNewSession);
-    document.getElementById('sessions-btn').addEventListener('click', toggleSessionsPanel);
     document.getElementById('clear-btn').addEventListener('click', clearChat);
-    document.getElementById('close-sessions').addEventListener('click', closeSessionsPanel);
-    
+
     // Split mode controls
     if (closeResponseBtn) {
         closeResponseBtn.addEventListener('click', exitSplitMode);
     }
-    
+
     // Model selection handling
-    modelSelect.addEventListener('change', function(e) {
+    modelSelect.addEventListener('change', function (e) {
         const selectedModel = e.target.value;
         if (!handleClaudeCodeModelSelection(selectedModel)) {
             // If Claude Code selection was invalid, prevent the change
@@ -89,12 +92,12 @@ function initializeHamburgerMenu() {
     const hamburgerMenu = document.getElementById('hamburger-menu');
     const navMenu = document.getElementById('nav-menu');
     const menuOverlay = document.getElementById('menu-overlay');
-    
+
     function toggleMenu() {
         hamburgerMenu.classList.toggle('active');
         navMenu.classList.toggle('active');
         menuOverlay.classList.toggle('active');
-        
+
         // Prevent body scroll when menu is open
         if (navMenu.classList.contains('active')) {
             document.body.style.overflow = 'hidden';
@@ -102,36 +105,36 @@ function initializeHamburgerMenu() {
             document.body.style.overflow = '';
         }
     }
-    
+
     function closeMenu() {
         hamburgerMenu.classList.remove('active');
         navMenu.classList.remove('active');
         menuOverlay.classList.remove('active');
         document.body.style.overflow = '';
     }
-    
+
     // Toggle menu when hamburger is clicked
     hamburgerMenu.addEventListener('click', toggleMenu);
-    
+
     // Close menu when overlay is clicked
     menuOverlay.addEventListener('click', closeMenu);
-    
+
     // Close menu when a menu item is clicked (on mobile)
-    navMenu.addEventListener('click', function(e) {
+    navMenu.addEventListener('click', function (e) {
         if (e.target.classList.contains('control-btn')) {
             closeMenu();
         }
     });
-    
+
     // Close menu on window resize if screen becomes larger
-    window.addEventListener('resize', function() {
+    window.addEventListener('resize', function () {
         if (window.innerWidth > 768) {
             closeMenu();
         }
     });
-    
+
     // Close menu on escape key
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
             closeMenu();
         }
@@ -148,7 +151,7 @@ I'm having trouble connecting to Ollama. Please make sure:
 - You have at least one model installed (\`ollama pull llama2\`)
 
 Once that's sorted, I'll be ready to help! 😊`;
-        
+
         addMessage(errorMessage, 'assistant');
         return;
     }
@@ -158,7 +161,7 @@ Once that's sorted, I'll be ready to help! 😊`;
 I'm here to help you with questions, analyze files, write code, and much more. 
 
 Drop a file below or ask me anything to get started!`;
-    
+
     addMessage(welcomeMessage, 'assistant');
 }
 
@@ -167,12 +170,12 @@ function updateWelcomeWithModels(models) {
     // Find the welcome message and add model info subtly
     const messages = chatContainer.querySelectorAll('.assistant-message');
     const welcomeMessage = messages[messages.length - 1]; // Get the last assistant message (should be welcome)
-    
+
     if (welcomeMessage && models.length > 0) {
         const modelInfo = document.createElement('div');
         modelInfo.className = 'model-info-subtle';
         modelInfo.innerHTML = `✅ ${models.length} model${models.length > 1 ? 's' : ''} available`;
-        
+
         // Insert before the timestamp
         const timestamp = welcomeMessage.querySelector('.message-timestamp');
         if (timestamp) {
@@ -186,63 +189,63 @@ function updateWelcomeWithModels(models) {
 // Load models function - Updated with simpler error handling
 async function loadModels() {
     const modelSelect = document.getElementById('model-select');
-    
+
     try {
         console.log('Loading models from Ollama...');
         modelSelect.innerHTML = '<option value="">Loading models...</option>';
-        
+
         const response = await fetch('/api/models', {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
             }
         });
-        
+
         console.log('Models API response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
         console.log('Models API response data:', data);
-        
+
         if (data.success && data.models && data.models.length > 0) {
             modelSelect.innerHTML = '';
-            
+
             data.models.forEach(model => {
                 const option = document.createElement('option');
                 option.value = model;
                 option.textContent = model;
                 modelSelect.appendChild(option);
             });
-            
+
             // Select the first model by default
             modelSelect.value = data.models[0];
             console.log(`Loaded ${data.models.length} models:`, data.models);
-            
+
             // Update welcome message with available models
             updateWelcomeWithModels(data.models);
-            
+
         } else {
             throw new Error('No models found in response');
         }
-        
+
     } catch (error) {
         console.error('Error loading models:', error);
-        
+
         // Fallback: Add some common models manually
         const fallbackModels = ['llama2', 'llama2:7b', 'llama2:13b', 'codellama', 'mistral', 'phi', 'neural-chat'];
-        
+
         modelSelect.innerHTML = '<option value="">Select a model</option>';
-        
+
         fallbackModels.forEach(model => {
             const option = document.createElement('option');
             option.value = model;
             option.textContent = model;
             modelSelect.appendChild(option);
         });
-        
+
         // Show error in a simple way - replace the welcome message
         chatContainer.innerHTML = ''; // Clear the welcome message
         showWelcomeMessage(true); // Show error version
@@ -255,26 +258,26 @@ async function sendMessage() {
     const sendButton = document.getElementById('send-button');
     const modelSelect = document.getElementById('model-select');
     const fileInput = document.getElementById('file-input');
-    
+
     const message = promptInput.value.trim();
     const selectedModel = modelSelect.value;
     const selectedFile = fileInput.files[0];
-    
+
     // Check if model is selected
     if (!selectedModel) {
         alert('Please select a model first. If no models are available, make sure Ollama is running and you have models installed.');
         return;
     }
-    
+
     if (!message && !selectedFile) {
         alert('Please enter a message or select a file.');
         return;
     }
-    
+
     // Disable send button and show loading state
     sendButton.disabled = true;
     sendButton.textContent = 'Sending...';
-    
+
     try {
         // Add user message to chat
         if (selectedFile) {
@@ -282,44 +285,45 @@ async function sendMessage() {
         } else {
             addMessage(message, 'user', selectedModel);
         }
-        
+
         // Prepare form data
         const formData = new FormData();
         formData.append('message', message);
         formData.append('model', selectedModel);
-        
+
         if (selectedFile) {
             formData.append('file', selectedFile);
         }
-        
+
         console.log('Sending message with model:', selectedModel);
-        
+
         // Send to backend
         const response = await fetch('/api/chat', {
             method: 'POST',
             body: formData
         });
-        
+
         console.log('Chat API response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
         console.log('Chat API response data:', data);
-        
+
         if (data.success) {
             // Enter split mode when AI responds
             enterSplitMode();
-            
-            // Add assistant response to both chat and split view
-            addMessage(data.message.content, 'assistant', selectedModel);
-            addResponseToSplitView(data.message.formatted_content || data.message.content);
+
+            // Add assistant response ONLY to split view (not main chat)
+            // Use formatted_content if available, otherwise fall back to content
+            const responseContent = data.message.formatted_content || data.message.content;
+            addResponseToSplitView(responseContent, selectedModel);
         } else {
             throw new Error(data.error || 'Unknown error occurred');
         }
-        
+
     } catch (error) {
         console.error('Error sending message:', error);
         addMessage(`❌ Error: ${error.message}`, 'system');
@@ -337,9 +341,9 @@ async function sendMessage() {
 function addMessage(content, role, model = null, hasFile = false, fileName = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}-message`;
-    
+
     let messageContent = '';
-    
+
     // Enhanced file indicator with type detection
     if (hasFile && fileName) {
         const fileType = getFileType(fileName);
@@ -350,28 +354,31 @@ function addMessage(content, role, model = null, hasFile = false, fileName = nul
             <span class="file-type">${fileType.toUpperCase()}</span>
         </div>`;
     }
-    
+
     // Enhanced message content with proper HTML rendering
     const formattedContent = enhanceMessageContent(content, role);
     messageContent += `<div class="message-content">${formattedContent}</div>`;
-    
+
     if (model) {
         messageContent += `<div class="model-info">
             <span class="model-label">Model:</span>
             <span class="model-name">${model}</span>
         </div>`;
     }
-    
+
     messageContent += `<div class="message-timestamp">${new Date().toLocaleTimeString()}</div>`;
-    
+
     messageDiv.innerHTML = messageContent;
     chatContainer.appendChild(messageDiv);
-    
+
     // Enhanced scrolling with table handling
     scrollToBottom();
-    
+
     // Post-process tables for better mobile experience
     enhanceTablesInMessage(messageDiv);
+
+    // Add modal functionality to code blocks
+    enhanceCodeBlocksWithModal(messageDiv);
 }
 
 // File handling functions
@@ -394,7 +401,7 @@ function handleDragLeave(event) {
 function handleFileDrop(event) {
     event.preventDefault();
     event.currentTarget.classList.remove('drag-over');
-    
+
     const files = event.dataTransfer.files;
     if (files.length > 0) {
         fileInput.files = files;
@@ -408,16 +415,16 @@ function showFilePreview(file) {
     const fileSizeKB = (file.size / 1024).toFixed(1);
     const fileSizeMB = (file.size / (1024 * 1024)).toFixed(1);
     const displaySize = file.size > 1024 * 1024 ? `${fileSizeMB} MB` : `${fileSizeKB} KB`;
-    
+
     // Enhanced file preview with type-specific information
     document.getElementById('file-preview-name').innerHTML = `
         <span class="file-icon">${fileIcon}</span>
         <span class="file-name">${file.name}</span>
     `;
-    
+
     filePreview.style.display = 'block';
     filePreview.className = `file-preview ${fileType}`;
-    
+
     // Enhanced file info with processing hints
     const processingHints = getProcessingHints(fileType);
     fileInfo.innerHTML = `
@@ -441,7 +448,7 @@ function getProcessingHints(fileType) {
         'javascript': 'Will analyze the code structure and functionality',
         'python': 'Will analyze the code structure and functionality'
     };
-    
+
     return hints[fileType] || null;
 }
 
@@ -462,7 +469,7 @@ function getFileType(fileName) {
         'xls': 'excel',
         'pptx': 'powerpoint',
         'ppt': 'powerpoint',
-        
+
         // Code files
         'js': 'javascript',
         'ts': 'typescript',
@@ -471,12 +478,12 @@ function getFileType(fileName) {
         'css': 'css',
         'json': 'json',
         'xml': 'xml',
-        
+
         // Text files
         'txt': 'text',
         'md': 'markdown',
         'csv': 'csv',
-        
+
         // Media files
         'pdf': 'pdf',
         'png': 'image',
@@ -486,7 +493,7 @@ function getFileType(fileName) {
         'bmp': 'image',
         'webp': 'image'
     };
-    
+
     return typeMap[extension] || 'file';
 }
 
@@ -509,7 +516,7 @@ function getFileIcon(fileType) {
         'csv': '📊',
         'file': '📎'
     };
-    
+
     return iconMap[fileType] || '📎';
 }
 
@@ -518,19 +525,19 @@ function enhanceMessageContent(content, role) {
     if (content.includes('<') && content.includes('>')) {
         return content;
     }
-    
+
     // Basic client-side enhancement for unformatted content
     let enhanced = content;
-    
+
     // Convert URLs to links
     enhanced = enhanced.replace(
-        /(https?:\/\/[^\s]+)/g, 
+        /(https?:\/\/[^\s]+)/g,
         '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
     );
-    
+
     // Convert line breaks to proper HTML
     enhanced = enhanced.replace(/\n/g, '<br>');
-    
+
     return enhanced;
 }
 
@@ -544,7 +551,7 @@ function scrollToBottom() {
 
 function enhanceTablesInMessage(messageDiv) {
     const tables = messageDiv.querySelectorAll('table, .formatted-table');
-    
+
     tables.forEach(table => {
         // Add responsive wrapper for mobile
         if (!table.parentElement.classList.contains('table-wrapper')) {
@@ -553,19 +560,19 @@ function enhanceTablesInMessage(messageDiv) {
             table.parentNode.insertBefore(wrapper, table);
             wrapper.appendChild(table);
         }
-        
+
         // Add hover effects to rows
         const rows = table.querySelectorAll('tr');
         rows.forEach(row => {
             row.addEventListener('mouseenter', () => {
                 row.style.backgroundColor = getComputedStyle(row).getPropertyValue('--hover-color') || '#f1f3f5';
             });
-            
+
             row.addEventListener('mouseleave', () => {
                 row.style.backgroundColor = '';
             });
         });
-        
+
         // Add click-to-copy functionality for table cells
         const cells = table.querySelectorAll('td, th');
         cells.forEach(cell => {
@@ -611,39 +618,116 @@ function showTooltip(element, message) {
         opacity: 0;
         transition: opacity 0.3s;
     `;
-    
+
     document.body.appendChild(tooltip);
-    
+
     const rect = element.getBoundingClientRect();
     tooltip.style.left = rect.left + (rect.width / 2) - (tooltip.offsetWidth / 2) + 'px';
     tooltip.style.top = rect.top - tooltip.offsetHeight - 5 + 'px';
-    
+
     setTimeout(() => tooltip.style.opacity = '1', 10);
-    
+
     setTimeout(() => {
         tooltip.style.opacity = '0';
         setTimeout(() => tooltip.remove(), 300);
     }, 2000);
 }
 
+function enhanceCodeBlocksWithModal(messageDiv) {
+    const codeBlocks = messageDiv.querySelectorAll('pre, code');
+
+    codeBlocks.forEach(block => {
+        // Only add modal to larger code blocks (pre elements)
+        if (block.tagName === 'PRE') {
+            block.style.cursor = 'pointer';
+            block.title = 'Click to view in modal';
+
+            block.addEventListener('click', (e) => {
+                e.preventDefault();
+                showCodeModal(block);
+            });
+        }
+    });
+}
+
+function showCodeModal(codeBlock) {
+    // Clone the code block
+    const modalCode = codeBlock.cloneNode(true);
+    modalCode.classList.add('modal-active');
+
+    // Show overlay
+    modalOverlay.classList.add('active');
+
+    // Add code block to body for modal display
+    document.body.appendChild(modalCode);
+
+    // Add close functionality
+    const closeModal = () => {
+        modalOverlay.classList.remove('active');
+        document.body.removeChild(modalCode);
+        document.removeEventListener('keydown', escapeHandler);
+        modalOverlay.removeEventListener('click', closeModal);
+    };
+
+    const escapeHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+        }
+    };
+
+    // Event listeners for closing
+    modalOverlay.addEventListener('click', closeModal);
+    document.addEventListener('keydown', escapeHandler);
+
+    // Add close button to code block
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '×';
+    closeBtn.style.cssText = `
+        position: absolute;
+        top: 10px;
+        right: 15px;
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        font-size: 24px;
+        cursor: pointer;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1002;
+    `;
+
+    closeBtn.addEventListener('click', closeModal);
+    modalCode.appendChild(closeBtn);
+}
+
 // Split mode functionality
 function enterSplitMode() {
     if (isSplitMode) return;
-    
+
     isSplitMode = true;
     mainContainer.classList.add('split-mode');
     responseArea.style.display = 'block';
-    
+
+    // Force visibility - ensure it's shown
+    setTimeout(() => {
+        responseArea.style.visibility = 'visible';
+        responseArea.style.opacity = '1';
+    }, 100);
+
     // Add smooth transition
     mainContainer.style.transition = 'all 0.3s ease';
 }
 
 function exitSplitMode() {
     if (!isSplitMode) return;
-    
+
     isSplitMode = false;
     mainContainer.classList.remove('split-mode');
-    
+
     // Hide response area after transition
     setTimeout(() => {
         if (!isSplitMode) {
@@ -653,27 +737,45 @@ function exitSplitMode() {
     }, 300);
 }
 
-function addResponseToSplitView(content, isLatest = true) {
-    if (!isSplitMode) return;
-    
+function addResponseToSplitView(content, model = null, isLatest = true) {
+    if (!isSplitMode || !responseContent) {
+        return;
+    }
+
     const responseDiv = document.createElement('div');
     responseDiv.className = `response-message ${isLatest ? 'latest' : ''}`;
-    
-    // Use the same enhanced content formatting
-    const formattedContent = enhanceMessageContent(content, 'assistant');
-    responseDiv.innerHTML = formattedContent;
-    
+
+    let messageContent = '';
+
+    // Use formatted content directly if it contains HTML, otherwise enhance it
+    const formattedContent = content.includes('<') ? content : enhanceMessageContent(content, 'assistant');
+    messageContent += `<div class="message-content">${formattedContent}</div>`;
+
+    if (model) {
+        messageContent += `<div class="model-info">
+            <span class="model-label">Model:</span>
+            <span class="model-name">${model}</span>
+        </div>`;
+    }
+
+    messageContent += `<div class="message-timestamp">${new Date().toLocaleTimeString()}</div>`;
+
+    responseDiv.innerHTML = messageContent;
+
     // Remove 'latest' class from previous responses
     const previousLatest = responseContent.querySelector('.response-message.latest');
     if (previousLatest && isLatest) {
         previousLatest.classList.remove('latest');
     }
-    
+
+    // Clear any existing content and add the new response
+    responseContent.innerHTML = '';
     responseContent.appendChild(responseDiv);
-    
-    // Post-process tables for better display
+
+    // Post-process tables and code blocks for better display
     enhanceTablesInMessage(responseDiv);
-    
+    enhanceCodeBlocksWithModal(responseDiv);
+
     // Scroll to the latest response
     responseDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -687,7 +789,7 @@ async function createNewSession() {
                 'Content-Type': 'application/json',
             }
         });
-        
+
         const data = await response.json();
         if (data.success) {
             currentSessionId = data.session_id;
@@ -708,111 +810,21 @@ function clearChat() {
     showWelcomeMessage(); // Show welcome message after clearing
 }
 
-// Sessions panel
-async function toggleSessionsPanel() {
-    const sessionsPanel = document.getElementById('sessions-panel');
-    const isActive = sessionsPanel.classList.contains('active');
-    
-    if (isActive) {
-        closeSessionsPanel();
-    } else {
-        await loadSessions();
-        sessionsPanel.classList.add('active');
-    }
-}
-
-function closeSessionsPanel() {
-    document.getElementById('sessions-panel').classList.remove('active');
-}
-
-async function loadSessions() {
-    const sessionsList = document.getElementById('sessions-list');
-    sessionsList.innerHTML = '<div class="loading">Loading sessions...</div>';
-    
-    try {
-        const response = await fetch('/api/sessions');
-        const data = await response.json();
-        
-        if (data.success && data.sessions.length > 0) {
-            sessionsList.innerHTML = '';
-            
-            data.sessions.forEach(session => {
-                const sessionDiv = document.createElement('div');
-                sessionDiv.className = 'session-item';
-                sessionDiv.innerHTML = `
-                    <div class="session-info">
-                        <div class="session-title">${session.title}</div>
-                        <div class="session-meta">${new Date(session.created_at).toLocaleDateString()} • ${session.message_count} messages</div>
-                        <div class="session-preview">${session.last_message}</div>
-                    </div>
-                    <div class="session-actions">
-                        <button class="session-delete" onclick="deleteSession('${session.session_id}')">Delete</button>
-                    </div>
-                `;
-                
-                sessionDiv.addEventListener('click', (e) => {
-                    if (!e.target.classList.contains('session-delete')) {
-                        loadSession(session.session_id);
-                    }
-                });
-                
-                sessionsList.appendChild(sessionDiv);
-            });
-        } else {
-            sessionsList.innerHTML = '<div class="loading">No sessions found</div>';
-        }
-    } catch (error) {
-        console.error('Error loading sessions:', error);
-        sessionsList.innerHTML = '<div class="loading">Error loading sessions</div>';
-    }
-}
-
-async function loadSession(sessionId) {
-    try {
-        const response = await fetch(`/api/session/${sessionId}/load`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            currentSessionId = sessionId;
-            clearChatForSession(); // Use different clear function for loading sessions
-            
-            data.messages.forEach(msg => {
-                addMessage(
-                    msg.formatted_content || msg.content,
-                    msg.role,
-                    msg.model,
-                    msg.has_file,
-                    msg.file_name
-                );
-            });
-            
-            closeSessionsPanel();
-            addMessage('📂 Session loaded successfully!', 'system');
-        }
-    } catch (error) {
-        console.error('Error loading session:', error);
-        addMessage('❌ Error loading session', 'system');
-    }
-}
+// Session loading removed - sessions panel no longer available
 
 async function deleteSession(sessionId) {
     if (!confirm('Are you sure you want to delete this session?')) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/session/${sessionId}/delete`, {
             method: 'DELETE'
         });
-        
+
         const data = await response.json();
         if (data.success) {
-            loadSessions(); // Refresh the sessions list
+            // Session deleted successfully
         }
     } catch (error) {
         console.error('Error deleting session:', error);
@@ -829,7 +841,7 @@ async function checkClaudeCodeStatus() {
     try {
         const response = await fetch('/api/claude-code/status');
         const data = await response.json();
-        
+
         if (data.success) {
             claudeCodeAvailable = data.available;
             return data;
@@ -843,11 +855,11 @@ async function checkClaudeCodeStatus() {
 
 async function setupClaudeCodeApiKey() {
     const apiKey = prompt('Enter your Claude Code API key:');
-    
+
     if (!apiKey || !apiKey.trim()) {
         return false;
     }
-    
+
     try {
         const response = await fetch('/api/claude-code/api-key', {
             method: 'POST',
@@ -856,9 +868,9 @@ async function setupClaudeCodeApiKey() {
             },
             body: JSON.stringify({ api_key: apiKey.trim() })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             claudeCodeAvailable = data.available;
             addMessage(`✅ Claude Code API key set successfully! You can now use Claude Code model.`, 'system');
@@ -880,7 +892,7 @@ function handleClaudeCodeModelSelection(selectedModel) {
     // If Claude Code model is selected but not available, prompt for API key
     if (selectedModel === 'claude-code' && !claudeCodeAvailable) {
         const message = `Claude Code requires an API key. Would you like to set it up now?`;
-        
+
         if (confirm(message)) {
             setupClaudeCodeApiKey();
         } else {
