@@ -13,44 +13,45 @@
             <header>
                 <h1>Sypha Chat Interface</h1>
                 
-                <!-- Hamburger Menu Button (visible on mobile) -->
+                <!-- Hamburger Menu Button -->
                 <button class="hamburger-menu" id="hamburger-menu" aria-label="Toggle menu">
                     <span class="hamburger-line"></span>
                     <span class="hamburger-line"></span>
                     <span class="hamburger-line"></span>
                 </button>
-                
-                <!-- Navigation Menu -->
-                <nav class="nav-menu" id="nav-menu">
-                    <div class="controls">
-                        <div class="control-group">
-                            <label for="model-select">Model:</label>
-                            <select id="model-select">
-                                <option value="">Loading models...</option>
-                            </select>
-                        </div>
-                        
-                        <div class="control-group">
-                            <button id="new-session-btn" class="control-btn">New Chat</button>
-                            <button id="clear-btn" class="control-btn">Clear</button>
-                        </div>
-                        
-                        <div class="control-group export-group">
-                            <label>Export:</label>
-                            <div class="export-buttons">
-                                <button id="export-word-btn" class="export-btn" title="Export to Word">📄 Word</button>
-                                <button id="export-excel-btn" class="export-btn" title="Export to Excel">📊 Excel</button>
-                                <button id="export-pdf-btn" class="export-btn" title="Export to PDF">📑 PDF</button>
-                            </div>
-                        </div>
-                        
-                        <div class="control-group image-group">
-                            <label>Image Generation:</label>
-                            <button id="image-panel-btn" class="control-btn" title="Generate AI images">🎨 Generate Images</button>
+            </header>
+            
+            <!-- Navigation Menu - now always visible -->
+            <nav class="nav-menu" id="nav-menu">
+                <div class="controls">
+                    <div class="control-group">
+                        <label for="model-select">Model:</label>
+                        <select id="model-select">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="control-group">
+                        <button id="new-session-btn" class="control-btn">New Chat</button>
+                        <button id="clear-btn" class="control-btn">Clear</button>
+                    </div>
+                    
+                    <div class="control-group export-group">
+                        <label>Export:</label>
+                        <div class="export-buttons">
+                            <button id="export-word-btn" class="export-btn" title="Export to Word">📄 Word</button>
+                            <button id="export-excel-btn" class="export-btn" title="Export to Excel">📊 Excel</button>
+                            <button id="export-pdf-btn" class="export-btn" title="Export to PDF">📑 PDF</button>
                         </div>
                     </div>
-                </nav>
-            </header>
+                    
+                    <div class="control-group image-group">
+                        <label>AI Generation:</label>
+                        <button id="image-panel-btn" class="control-btn" title="Generate AI images">🎨 Generate Images</button>
+                        <button id="video-panel-btn" class="control-btn" title="Generate AI videos">🎬 Generate Videos</button>
+                    </div>
+                </div>
+            </nav>
 
 
 
@@ -96,8 +97,7 @@
         </div>
     </div>
 
-    <!-- Overlay for mobile menu -->
-    <div class="menu-overlay" id="menu-overlay"></div>
+
     
     <!-- Modal overlay for code windows -->
     <div class="modal-overlay" id="modal-overlay"></div>
@@ -116,35 +116,52 @@
                         <textarea id="image-prompt" placeholder="Describe the image you want to generate..." rows="3"></textarea>
                     </div>
                     <div class="form-group">
-                        <label for="negative-prompt">Negative Prompt (optional):</label>
-                        <textarea id="negative-prompt" placeholder="What you don't want in the image..." rows="2"></textarea>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="image-width">Width:</label>
-                            <select id="image-width">
-                                <option value="512" selected>512px (Recommended)</option>
-                                <option value="768">768px</option>
-                                <option value="1024">1024px</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="image-height">Height:</label>
-                            <select id="image-height">
-                                <option value="512" selected>512px (Recommended)</option>
-                                <option value="768">768px</option>
-                                <option value="1024">1024px</option>
-                            </select>
-                        </div>
+                        <label for="image-model">Model:</label>
+                        <select id="image-model">
+                            <option value="stabilityai/stable-diffusion-2-1" selected>Stable Diffusion 2.1 (Recommended)</option>
+                            <option value="dreamlike-art/dreamlike-anime-1.0">Dreamlike Anime (Artistic)</option>
+                            <option value="prompthero/openjourney">OpenJourney (Midjourney Style)</option>
+                        </select>
                     </div>
                     <div class="form-actions">
-                        <button id="generate-image-btn" class="generate-btn">🎨 Generate Image (Free)</button>
-                        <button id="setup-replicate-btn" class="setup-btn" style="display: none;">⚙️ Add HF Token (Optional)</button>
+                        <button id="generate-image-btn" class="generate-btn">🎨 Generate Image</button>
+                        <button id="setup-replicate-btn" class="setup-btn" style="display: none;">⚙️ Setup HF Token (Required)</button>
                     </div>
                 </div>
                 <div class="image-gallery" id="image-gallery">
                     <div class="gallery-placeholder">
                         <p>Generated images will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Generation Modal -->
+    <div class="video-modal" id="video-modal" style="display: none;">
+        <div class="video-modal-content">
+            <div class="video-modal-header">
+                <h3>🎬 AI Video Generation via Hugging Face</h3>
+                <button class="close-btn" id="close-video-modal">&times;</button>
+            </div>
+            <div class="video-modal-body">
+                <div class="video-form">
+                    <div class="form-group">
+                        <label for="video-prompt">Video Prompt:</label>
+                        <textarea id="video-prompt" placeholder="Describe the video you want to generate..." rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Method:</label>
+                        <p class="method-info">Simple Animation (Free) - Creates short video from image sequence</p>
+                    </div>
+                    <div class="form-actions">
+                        <button id="generate-video-btn" class="generate-btn">🎬 Generate Video</button>
+                        <button id="setup-video-btn" class="setup-btn" style="display: none;">⚙️ Setup HF Token (Required)</button>
+                    </div>
+                </div>
+                <div class="video-gallery" id="video-gallery">
+                    <div class="gallery-placeholder">
+                        <p>Generated videos will appear here</p>
                     </div>
                 </div>
             </div>

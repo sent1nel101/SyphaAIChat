@@ -1242,44 +1242,44 @@ def load_messages_from_session(messages):
 @app.route('/api/generate-image', methods=['POST'])
 def generate_image():
     """Generate an image using Hugging Face Inference API"""
+    print("Image generation endpoint called")
+    
     if not HUGGINGFACE_AVAILABLE:
+        print("HUGGINGFACE_AVAILABLE is False")
         return jsonify({'success': False, 'error': 'Image generation not available - huggingface-hub not installed'}), 400
     
     try:
         data = request.get_json()
+        print(f"Received data: {data}")
         prompt = data.get('prompt', '').strip()
         
         if not prompt:
             return jsonify({'success': False, 'error': 'Prompt is required'}), 400
         
-        # Check for Hugging Face API token (optional for free tier)
+        # Check for Hugging Face API token (required for image generation)
         hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
+        
+        if not hf_token:
+            return jsonify({
+                'success': False, 
+                'error': 'Hugging Face API token required for image generation. Please set HUGGINGFACE_HUB_TOKEN or HF_TOKEN environment variable.',
+                'setup_required': True
+            }), 400
         
         # Initialize Hugging Face client
         client = InferenceClient(token=hf_token)
         
-        # Image generation parameters
+        # Image generation parameters - using confirmed working models
         model_name = data.get('model', 'stabilityai/stable-diffusion-2-1')
-        width = int(data.get('width', 512))
-        height = int(data.get('height', 512))
-        num_inference_steps = int(data.get('num_inference_steps', 20))
-        guidance_scale = float(data.get('guidance_scale', 7.5))
-        
-        # Get negative prompt if provided
-        negative_prompt = data.get('negative_prompt', '')
         
         print(f"Generating image with Hugging Face model {model_name}: {prompt}")
         
-        # Generate image using Hugging Face
+        # Generate image using Hugging Face Inference Providers
         try:
+            # Try with specific model first
             image = client.text_to_image(
-                prompt=prompt,
-                negative_prompt=negative_prompt if negative_prompt else None,
-                model=model_name,
-                width=width,
-                height=height,
-                num_inference_steps=num_inference_steps,
-                guidance_scale=guidance_scale
+                prompt,
+                model=model_name
             )
             
             # Convert PIL Image to base64 for frontend
@@ -1295,26 +1295,15 @@ def generate_image():
                 'success': True,
                 'images': [image_url],
                 'prompt': prompt,
-                'model': model_name,
-                'parameters': {
-                    'width': width,
-                    'height': height,
-                    'num_inference_steps': num_inference_steps,
-                    'guidance_scale': guidance_scale,
-                    'negative_prompt': negative_prompt
-                }
+                'model': model_name
             })
             
         except Exception as model_error:
-            # If the specified model fails, try with default model
+            # If the specified model fails, try without specifying a model (uses default)
             print(f"Model {model_name} failed, trying default model: {str(model_error)}")
             try:
-                image = client.text_to_image(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt if negative_prompt else None,
-                    width=width,
-                    height=height
-                )
+                image = client.text_to_image(prompt)
+                fallback_model = "default"
                 
                 # Convert PIL Image to base64 for frontend
                 img_buffer = io.BytesIO()
@@ -1328,12 +1317,7 @@ def generate_image():
                     'success': True,
                     'images': [image_url],
                     'prompt': prompt,
-                    'model': 'default',
-                    'parameters': {
-                        'width': width,
-                        'height': height,
-                        'negative_prompt': negative_prompt
-                    }
+                    'model': fallback_model
                 })
             except Exception as default_error:
                 raise default_error
@@ -1342,6 +1326,215 @@ def generate_image():
         error_message = str(e)
         print(f"Image generation error: {error_message}")
         return jsonify({'success': False, 'error': f'Image generation failed: {error_message}'}), 500
+
+@app.route('/api/generate-video', methods=['POST'])
+def generate_video():
+    """Generate a video using available free services"""
+    print("Video generation endpoint called")
+    
+    try:
+        data = request.get_json()
+        prompt = data.get('prompt', '').strip()
+        duration = int(data.get('duration', 3))  # Default 3 seconds
+        fps = int(data.get('fps', 8))  # Lower FPS for free tier
+        
+        if not prompt:
+            return jsonify({'success': False, 'error': 'Prompt is required'}), 400
+        
+        # For now, create a simple animation using image sequence
+        # This is a basic implementation - can be enhanced later
+        video_result = create_simple_video_animation(prompt, duration, fps)
+        
+        if video_result['success']:
+            return jsonify({
+                'success': True,
+                'video_url': video_result['video_url'],
+                'prompt': prompt,
+                'duration': duration,
+                'fps': fps,
+                'method': 'simple_animation'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': video_result['error']
+            }), 500
+            
+    except Exception as e:
+        error_message = str(e)
+        print(f"Video generation error: {error_message}")
+        return jsonify({
+            'success': False, 
+            'error': f'Video generation failed: {error_message}'
+        }), 500
+
+def create_simple_video_animation(prompt, duration, fps):
+    """Create a simple video animation using image generation"""
+    try:
+        if not HUGGINGFACE_AVAILABLE:
+            return {'success': False, 'error': 'Hugging Face not available for image generation'}
+        
+        hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
+        if not hf_token:
+            return {'success': False, 'error': 'Hugging Face token required'}
+        
+        # Create multiple images with slight variations
+        frames = []
+        total_frames = duration * fps
+        
+        client = InferenceClient(token=hf_token)
+        
+        # Generate keyframes with variations
+        for i in range(min(total_frames, 8)):  # Limit to 8 frames for free tier
+            # Add slight variations to the prompt for each frame
+            frame_prompt = f"{prompt}, frame {i+1}, slightly different angle"
+            
+            try:
+                image = client.text_to_image(frame_prompt)
+                frames.append(image)
+            except Exception as e:
+                print(f"Frame {i} generation failed: {e}")
+                # Use the last successful frame if available
+                if frames:
+                    frames.append(frames[-1])
+        
+        if not frames:
+            return {'success': False, 'error': 'No frames could be generated'}
+        
+        # Create video from frames
+        video_path = create_video_from_frames(frames, fps)
+        
+        if video_path:
+            # Convert to base64 for web delivery
+            with open(video_path, 'rb') as video_file:
+                video_data = video_file.read()
+                video_base64 = base64.b64encode(video_data).decode('utf-8')
+                video_url = f"data:video/mp4;base64,{video_base64}"
+            
+            # Clean up temporary file
+            os.remove(video_path)
+            
+            return {'success': True, 'video_url': video_url}
+        else:
+            return {'success': False, 'error': 'Failed to create video from frames'}
+            
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def create_video_from_frames(frames, fps):
+    """Create an MP4 video from a list of PIL images"""
+    try:
+        import tempfile
+        import cv2
+        import numpy as np
+        
+        # Create temporary directory for frames
+        with tempfile.TemporaryDirectory() as temp_dir:
+            frame_paths = []
+            
+            # Save frames as temporary images
+            for i, frame in enumerate(frames):
+                frame_path = os.path.join(temp_dir, f"frame_{i:04d}.png")
+                frame.save(frame_path)
+                frame_paths.append(frame_path)
+            
+            # Create video file
+            temp_video = tempfile.NamedTemporaryFile(suffix='.mp4', delete=False)
+            video_path = temp_video.name
+            temp_video.close()
+            
+            # Get frame dimensions from first frame
+            first_frame = cv2.imread(frame_paths[0])
+            height, width, layers = first_frame.shape
+            
+            # Create video writer
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            video_writer = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
+            
+            # Add each frame multiple times to extend duration
+            repeats = max(1, 24 // len(frames))  # Repeat frames to get reasonable duration
+            
+            for frame_path in frame_paths:
+                frame = cv2.imread(frame_path)
+                for _ in range(repeats):
+                    video_writer.write(frame)
+            
+            video_writer.release()
+            cv2.destroyAllWindows()
+            
+            return video_path
+            
+    except ImportError:
+        print("OpenCV not available, trying alternative method")
+        return create_video_with_pillow(frames, fps)
+    except Exception as e:
+        print(f"Video creation error: {e}")
+        return None
+
+def create_video_with_pillow(frames, fps):
+    """Alternative video creation using Pillow for GIF (fallback)"""
+    try:
+        import tempfile
+        
+        # Create animated GIF as fallback
+        temp_gif = tempfile.NamedTemporaryFile(suffix='.gif', delete=False)
+        gif_path = temp_gif.name
+        temp_gif.close()
+        
+        # Create animated GIF
+        frames[0].save(
+            gif_path,
+            save_all=True,
+            append_images=frames[1:],
+            duration=1000//fps,  # Duration in milliseconds
+            loop=0
+        )
+        
+        return gif_path
+        
+    except Exception as e:
+        print(f"GIF creation error: {e}")
+        return None
+
+@app.route('/api/test-image-simple', methods=['POST'])
+def test_image_simple():
+    """Test simple image generation without model specification"""
+    if not HUGGINGFACE_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Hugging Face not available'}), 400
+    
+    try:
+        data = request.get_json()
+        prompt = data.get('prompt', 'a cat').strip()
+        
+        hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
+        if not hf_token:
+            return jsonify({'success': False, 'error': 'Token required'}), 400
+        
+        print(f"Testing simple image generation with prompt: {prompt}")
+        
+        # Try the simplest possible approach
+        client = InferenceClient(token=hf_token)
+        image = client.text_to_image(prompt)
+        
+        # Convert to base64
+        img_buffer = io.BytesIO()
+        image.save(img_buffer, format='PNG')
+        img_buffer.seek(0)
+        
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+        image_url = f"data:image/png;base64,{img_base64}"
+        
+        return jsonify({
+            'success': True,
+            'images': [image_url],
+            'prompt': prompt,
+            'model': 'default'
+        })
+        
+    except Exception as e:
+        error_message = str(e)
+        print(f"Simple image test error: {error_message}")
+        return jsonify({'success': False, 'error': f'Test failed: {error_message}'}), 500
 
 @app.route('/api/huggingface/status', methods=['GET'])
 def huggingface_status():
@@ -1356,12 +1549,13 @@ def huggingface_status():
     
     hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
     
-    # Hugging Face has a free tier, so it's available even without a token
+    # Image generation requires a Hugging Face token
     return jsonify({
-        'available': True,  # Always available with free tier
+        'available': bool(hf_token and hf_token.strip()),
         'sdk_installed': True,
         'has_api_key': bool(hf_token and hf_token.strip()),
-        'free_tier': True
+        'token_required': True,
+        'setup_url': 'https://huggingface.co/settings/tokens'
     })
 
 @app.route('/api/huggingface/api-key', methods=['POST'])

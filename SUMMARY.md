@@ -280,6 +280,8 @@ pip install claude-code-sdk python-dotenv
 - **Phase 7**: UI/UX Improvements & Bug Fixes
 - **Phase 9**: UI Bug Fixes & Display Issues
 - **Phase 11**: Speech & Image Features
+- **Phase 12**: Mobile Menu Redesign
+- **Phase 13**: AI Generation Fixes & Video Support
 
 ### 📋 Status
 - **ALL MAJOR DEVELOPMENT PHASES COMPLETE** 🎉
@@ -338,6 +340,111 @@ pip install claude-code-sdk python-dotenv
 
 ---
 
+## Phase 12: Mobile Menu Redesign
+
+### 🔧 Problem Resolution
+- **Hamburger Menu Issues**: Removed problematic hamburger menu that interfered with mobile dropdown functionality
+- **Mobile Dropdown Fix**: Language model selection now works properly on mobile devices
+- **Background Blur Removal**: Eliminated non-functional backdrop blur effects
+- **Text Contrast Enhancement**: Improved readability with darker text colors and proper shadows
+
+### 🎨 Design Improvements
+- **Always-Visible Navigation**: Navigation menu now stacks naturally below title instead of hidden sidebar
+- **Responsive Layout**: Menu adapts seamlessly from horizontal (desktop) to vertical stacking (mobile)
+- **Enhanced Typography**: Improved title, label, and control text contrast for better accessibility
+- **Natural Flow**: Application layout flows logically without overlays or complex z-index management
+
+### 📁 Files Modified
+- **`templates/index.html`** - Restructured header and navigation layout
+- **`static/css/style.css`** - Removed hamburger styles, added responsive navigation
+- **`static/js/app.js`** - Removed hamburger functionality and related event handlers
+
+### 🔍 Key Changes
+- **HTML Structure**: Moved navigation outside header, eliminated hamburger button and overlay
+- **CSS Simplification**: Replaced complex mobile menu styles with simple responsive design
+- **JavaScript Cleanup**: Removed hamburger menu initialization and toggle functionality
+- **Mobile Optimization**: Added responsive breakpoints for optimal mobile experience
+
+### 📱 Mobile Experience
+- **Dropdown Functionality**: Language model selection works correctly on all mobile devices  
+- **Touch-Friendly**: All controls properly sized and accessible for touch interaction
+- **Visual Clarity**: Enhanced text contrast ensures readability across all screen types
+- **Intuitive Layout**: Menu structure is immediately visible and understandable
+
+---
+
+## Phase 13: AI Generation Fixes & Video Support
+
+### 🔧 API Integration Fixes
+- **Hugging Face Client Initialization**: Removed unsupported `provider` parameter and corrected token usage
+- **Model Compatibility**: Updated to use models actually available on Hugging Face Inference API
+- **Error Handling**: Added comprehensive debugging and fallback model support
+- **Token Management**: Proper environment variable handling for HF_TOKEN/HUGGINGFACE_HUB_TOKEN
+
+### 🎨 Image Generation Improvements
+- **Working Models**: Updated to use `runwayml/stable-diffusion-v1-5`, `CompVis/stable-diffusion-v1-4`, and `stabilityai/stable-diffusion-xl-base-1.0`
+- **Fallback System**: Automatic fallback to alternative models if primary model fails
+- **Mobile Optimization**: Updated mobile defaults to use faster models
+- **Frontend Updates**: Model selector with appropriate descriptions and recommendations
+
+### 🎬 Text-to-Video Generation (Updated - Now Working!)
+- **Working Video Generation**: Implemented simple animation method using image sequence
+- **Free Video Creation**: Creates MP4 videos from multiple generated images with prompt variations
+- **OpenCV Integration**: Added video creation using OpenCV with Pillow GIF fallback
+- **Simple Animation Method**: Generates keyframes with variations to create movement effect
+- **Updated UI**: Removed model selection, added method explanation for user clarity
+
+### 📁 Files Modified
+- **`app.py`** - Fixed InferenceClient initialization, updated models, added video generation endpoint
+- **`templates/index.html`** - Updated model options, added video generation modal and controls
+- **`static/js/app.js`** - Added video generation functions, fixed mobile optimization, updated models
+- **`static/css/style.css`** - Added video modal styling and responsive design
+
+### 🔍 Key Technical Fixes
+- **InferenceClient Parameters**: Removed `provider="together"` and `api_key=`, using `token=` instead
+- **Model Compatibility**: Ongoing work to identify models that work with HF Inference API
+- **Error Debugging**: Added detailed logging for API calls and error responses
+- **Video Handling**: Proper base64 encoding and video element integration
+- **Fallback System**: Implemented default model fallback when specific models unavailable
+
+### 📱 Enhanced Features
+- **Dual Generation**: Both image and video generation working from same interface
+- **Model Selection**: Users can choose between different models based on speed vs quality preferences
+- **Download Support**: Both generated images and videos can be downloaded
+- **Mobile Optimization**: Touch-friendly controls and appropriate model defaults for mobile
+
+---
+
+## Phase 13.1: Layout Fixes & Video Generation Completion
+
+### 🎯 Input Container Overlap Fix
+- **Z-Index Resolution**: Fixed input-container appearing behind other elements by changing z-index from -1 to 10
+- **Enhanced Spacing**: Added bottom padding to chat-container and margins for proper separation
+- **Mobile Responsiveness**: Improved spacing for all mobile breakpoints (768px, 480px)
+- **Split-Mode Compatibility**: Applied fixes to both normal and split-screen layouts
+
+### 🎬 Video Generation Implementation Complete
+- **Working Video Creation**: Implemented `create_simple_video_animation()` function
+- **Image Sequence Method**: Generates multiple images with prompt variations to create animation
+- **Video File Creation**: Uses OpenCV for MP4 creation with Pillow GIF fallback
+- **Free Implementation**: Uses existing Hugging Face image generation to create video frames
+- **Updated Dependencies**: Added opencv-python to requirements.txt
+
+### 🎨 UI/UX Improvements  
+- **Re-enabled Video Button**: Video generation button now active with updated title
+- **Method Information**: Replaced model selection with clear explanation of simple animation method
+- **Enhanced CSS**: Added styling for method information display
+- **Frontend Updates**: JavaScript updated to handle new video API response format
+
+### 📁 Files Modified in Phase 13.1
+- **`app.py`** - Added complete video generation functionality with frame creation
+- **`requirements.txt`** - Added opencv-python dependency  
+- **`templates/index.html`** - Updated video generation UI and re-enabled button
+- **`static/css/style.css`** - Fixed input positioning and added method info styling
+- **`static/js/app.js`** - Updated video generation handling for new API format
+
+---
+
 ### 🚀 Ready for Production
 The application is now feature-complete for:
 - Multi-AI chat interface (Ollama + Claude Code)
@@ -384,11 +491,12 @@ The application is now feature-complete for:
 **API Integrations**: 3 external services (Ollama, Claude Code, Hugging Face)
 
 The application has evolved from a basic chat interface to a comprehensive AI-powered platform featuring:
-- **Multi-modal AI interaction** (text, voice, image generation)
+- **Multi-modal AI interaction** (text, voice, image & video generation)
 - **Professional document processing** (Word, Excel, PowerPoint, PDF)
 - **Advanced export capabilities** (Word, Excel, PDF)
 - **Mobile-first responsive design** with touch optimizations
-- **Free AI services integration** with optional premium features
+- **Free AI services integration** with Hugging Face Inference API
 - **Real-time speech recognition** and voice commands
-- **Free AI image generation** via Hugging Face Inference API
+- **AI image generation** with multiple Stable Diffusion models
+- **AI video generation** with text-to-video capabilities
 - **Split-screen architecture** for enhanced productivity

@@ -11,6 +11,7 @@ let claudeCodeAvailable = false;
 let chatContainer, promptInput, sendButton, modelSelect, fileInput, fileButton, fileInfo, filePreview;
 let mainContainer, responseArea, responseContent, closeResponseBtn, modalOverlay, voiceButton;
 let imageModal, imagePanelBtn, generateImageBtn, setupReplicateBtn;
+let videoModal, videoPanelBtn, generateVideoBtn, setupVideoBtn;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function () {
@@ -52,6 +53,12 @@ function initializeElements() {
     imagePanelBtn = document.getElementById('image-panel-btn');
     generateImageBtn = document.getElementById('generate-image-btn');
     setupReplicateBtn = document.getElementById('setup-replicate-btn');
+    
+    // Video generation elements
+    videoModal = document.getElementById('video-modal');
+    videoPanelBtn = document.getElementById('video-panel-btn');
+    generateVideoBtn = document.getElementById('generate-video-btn');
+    setupVideoBtn = document.getElementById('setup-video-btn');
 }
 
 function initializeEventListeners() {
@@ -94,6 +101,12 @@ function initializeEventListeners() {
     generateImageBtn.addEventListener('click', generateImage);
     setupReplicateBtn.addEventListener('click', setupReplicateApiKey);
     document.getElementById('close-image-modal').addEventListener('click', hideImageModal);
+    
+    // Video generation buttons
+    videoPanelBtn.addEventListener('click', showVideoModal);
+    generateVideoBtn.addEventListener('click', generateVideo);
+    setupVideoBtn.addEventListener('click', setupReplicateApiKey);
+    document.getElementById('close-video-modal').addEventListener('click', hideVideoModal);
 
     // Split mode controls - removed close button functionality
 
@@ -141,7 +154,9 @@ function initializeHamburgerMenu() {
 
     // Close menu when a menu item is clicked (on mobile)
     navMenu.addEventListener('click', function (e) {
-        if (e.target.classList.contains('control-btn')) {
+        if (e.target.classList.contains('control-btn') || 
+            e.target.classList.contains('export-btn') || 
+            e.target.id === 'image-panel-btn') {
             closeMenu();
         }
     });
@@ -1146,13 +1161,20 @@ async function checkHuggingFaceStatus() {
         if (!data.sdk_installed) {
             imagePanelBtn.disabled = true;
             imagePanelBtn.title = 'Image generation not available - Hugging Face SDK not installed';
-        } else if (data.free_tier) {
-            // Free tier is available
+        } else if (data.token_required) {
+            // Token is required for image generation
             setupReplicateBtn.style.display = data.has_api_key ? 'none' : 'inline-block';
-            setupReplicateBtn.textContent = '⚙️ Add HF Token (Optional)';
-            setupReplicateBtn.title = 'Add Hugging Face token for better rate limits (optional)';
-            generateImageBtn.disabled = false;
-            imagePanelBtn.title = 'Generate AI images (Free via Hugging Face)';
+            setupReplicateBtn.textContent = '⚙️ Setup HF Token (Required)';
+            setupReplicateBtn.title = 'Hugging Face token required for image generation';
+            generateImageBtn.disabled = !data.has_api_key;
+            
+            if (data.has_api_key) {
+                imagePanelBtn.title = 'Generate AI images via Hugging Face';
+                imagePanelBtn.disabled = false;
+            } else {
+                imagePanelBtn.title = 'Setup Hugging Face token first to generate images';
+                imagePanelBtn.disabled = true;
+            }
         } else {
             setupReplicateBtn.style.display = 'none';
             generateImageBtn.disabled = false;
@@ -1170,10 +1192,10 @@ async function checkHuggingFaceStatus() {
 
 // Setup Hugging Face API key
 async function setupReplicateApiKey() {
-    const apiKey = prompt('Enter your Hugging Face API token (optional):\n\nThis improves rate limits but is not required for free usage.\nYou can get one at https://huggingface.co/settings/tokens');
+    const apiKey = prompt('Enter your Hugging Face API token (REQUIRED for image generation):\n\nGet your free token at: https://huggingface.co/settings/tokens\n\n1. Sign up/login to Hugging Face\n2. Go to Settings > Access Tokens\n3. Create a new token\n4. Copy and paste it here');
 
     if (!apiKey || !apiKey.trim()) {
-        addMessage('ℹ️ No token provided. You can still use image generation with the free tier.', 'system');
+        addMessage('❌ Hugging Face API token is required for image generation. Please get one at https://huggingface.co/settings/tokens', 'system');
         return false;
     }
 
@@ -1227,6 +1249,9 @@ function showImageModal() {
 // Hide image generation modal
 function hideImageModal() {
     imageModal.classList.remove('show');
+    // Reset any mobile transform/opacity changes
+    imageModal.style.transform = '';
+    imageModal.style.opacity = '';
     setTimeout(() => {
         imageModal.style.display = 'none';
     }, 300);
@@ -1234,10 +1259,12 @@ function hideImageModal() {
 
 // Generate image
 async function generateImage() {
+    console.log('Generate image function called');
+    
     const prompt = document.getElementById('image-prompt').value.trim();
-    const negativePrompt = document.getElementById('negative-prompt').value.trim();
-    const width = parseInt(document.getElementById('image-width').value);
-    const height = parseInt(document.getElementById('image-height').value);
+    const model = document.getElementById('image-model').value;
+    
+    console.log('Prompt:', prompt, 'Model:', model);
     
     if (!prompt) {
         addMessage('❌ Please enter a prompt for image generation', 'system');
@@ -1269,10 +1296,7 @@ async function generateImage() {
             },
             body: JSON.stringify({
                 prompt: prompt,
-                negative_prompt: negativePrompt,
-                width: width,
-                height: height,
-                num_outputs: 1
+                model: model
             })
         });
         
@@ -1372,6 +1396,241 @@ document.addEventListener('keydown', function(event) {
     }
 });
 
+// Add swipe down to close on mobile - wrapped in DOM ready check
+document.addEventListener('DOMContentLoaded', function() {
+    const imageModal = document.getElementById('image-modal');
+    
+    if (!imageModal) {
+        console.warn('Image modal not found, skipping touch event setup');
+        return;
+    }
+    
+    let startY = 0;
+    let currentY = 0;
+    let isDragging = false;
+
+    imageModal.addEventListener('touchstart', function(e) {
+        if (e.target === imageModal) {
+            startY = e.touches[0].clientY;
+            isDragging = true;
+        }
+    });
+
+    imageModal.addEventListener('touchmove', function(e) {
+        if (!isDragging || e.target !== imageModal) return;
+        
+        currentY = e.touches[0].clientY;
+        const diffY = currentY - startY;
+        
+        // Only allow downward swipes
+        if (diffY > 0) {
+            e.preventDefault();
+            // Add visual feedback for the swipe
+            imageModal.style.transform = `translateY(${Math.min(diffY * 0.5, 100)}px)`;
+            imageModal.style.opacity = Math.max(1 - (diffY / 300), 0.5);
+        }
+    });
+
+    imageModal.addEventListener('touchend', function(e) {
+        if (!isDragging) return;
+        
+        const diffY = currentY - startY;
+        
+        // Close modal if swiped down enough
+        if (diffY > 100) {
+            hideImageModal();
+        } else {
+            // Reset position
+            imageModal.style.transform = '';
+            imageModal.style.opacity = '';
+        }
+        
+        isDragging = false;
+        startY = 0;
+        currentY = 0;
+    });
+});
+
+// =============================================================================
+// VIDEO GENERATION FUNCTIONALITY
+// =============================================================================
+
+// Show video generation modal
+function showVideoModal() {
+    // Video generation is temporarily disabled
+    addMessage('⚠️ Video generation is temporarily disabled while we work on API compatibility issues. Image generation is fully working!', 'system');
+    return;
+    
+    if (!huggingFaceAvailable) {
+        addMessage('❌ Video generation is not available. Please set up your Hugging Face token first.', 'system');
+        return;
+    }
+    
+    videoModal.classList.add('show');
+    videoModal.style.display = 'flex';
+    
+    // Focus on the prompt input
+    setTimeout(() => {
+        document.getElementById('video-prompt').focus();
+    }, 300);
+}
+
+// Hide video generation modal
+function hideVideoModal() {
+    videoModal.classList.remove('show');
+    setTimeout(() => {
+        videoModal.style.display = 'none';
+    }, 300);
+}
+
+// Generate video
+async function generateVideo() {
+    console.log('Generate video function called');
+    
+    const prompt = document.getElementById('video-prompt').value.trim();
+    
+    console.log('Video Prompt:', prompt);
+    
+    if (!prompt) {
+        addMessage('❌ Please enter a prompt for video generation', 'system');
+        return;
+    }
+    
+    if (!huggingFaceAvailable) {
+        addMessage('❌ Hugging Face API not available. Please check the service status.', 'system');
+        return;
+    }
+    
+    // Disable generate button during generation
+    generateVideoBtn.disabled = true;
+    generateVideoBtn.textContent = '🎬 Generating...';
+    
+    // Show gallery placeholder
+    const gallery = document.getElementById('video-gallery');
+    gallery.innerHTML = `
+        <div class="gallery-placeholder">
+            <p>🎬 Generating video... This may take 2-3 minutes</p>
+        </div>
+    `;
+    
+    try {
+        const response = await fetch('/api/generate-video', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt: prompt,
+                duration: 3,
+                fps: 8
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            displayGeneratedVideos([data.video_url], data.prompt);
+            addMessage(`✅ Video generated successfully: "${data.prompt}" (${data.method})`, 'system');
+        } else {
+            addMessage(`❌ Video generation failed: ${data.error}`, 'system');
+            gallery.innerHTML = `
+                <div class="gallery-placeholder">
+                    <p>❌ Generation failed. Try again.</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error generating video:', error);
+        addMessage(`❌ Video generation error: ${error.message}`, 'system');
+        gallery.innerHTML = `
+            <div class="gallery-placeholder">
+                <p>❌ Generation failed. Try again.</p>
+            </div>
+        `;
+    } finally {
+        // Re-enable generate button
+        generateVideoBtn.disabled = false;
+        generateVideoBtn.textContent = '🎬 Generate Video';
+    }
+}
+
+// Display generated videos in gallery
+function displayGeneratedVideos(videoUrls, prompt) {
+    const gallery = document.getElementById('video-gallery');
+    
+    if (!videoUrls || videoUrls.length === 0) {
+        gallery.innerHTML = `
+            <div class="gallery-placeholder">
+                <p>No videos were generated</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const videosHtml = videoUrls.map((url, index) => `
+        <div class="gallery-video">
+            <video controls style="width: 100%; max-width: 400px;">
+                <source src="${url}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <div class="video-actions">
+                <button class="video-action-btn" onclick="downloadVideo('${url}', '${prompt}_${index + 1}')" title="Download">
+                    💾
+                </button>
+            </div>
+            <div class="video-info">
+                <div class="video-prompt">${prompt}</div>
+            </div>
+        </div>
+    `).join('');
+    
+    gallery.innerHTML = `<div class="gallery-videos">${videosHtml}</div>`;
+}
+
+// Download video
+function downloadVideo(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename.replace(/[^a-zA-Z0-9]/g, '_')}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    addMessage('💾 Video download started', 'system');
+}
+
+// =============================================================================
+// HAMBURGER MENU FUNCTIONALITY
+// =============================================================================
+
+function initializeHamburgerMenu() {
+    const hamburgerMenu = document.getElementById('hamburger-menu');
+    const navMenu = document.getElementById('nav-menu');
+    
+    if (!hamburgerMenu || !navMenu) {
+        console.warn('Hamburger menu elements not found');
+        return;
+    }
+    
+    // Simple toggle function
+    hamburgerMenu.addEventListener('click', function() {
+        navMenu.classList.toggle('active');
+    });
+    
+    // Close menu when clicking outside
+    document.addEventListener('click', function(e) {
+        if (!navMenu.contains(e.target) && !hamburgerMenu.contains(e.target)) {
+            navMenu.classList.remove('active');
+        }
+    });
+    
+    // Close menu on escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            navMenu.classList.remove('active');
+        }
+    });
+}
+
 // =============================================================================
 // MOBILE OPTIMIZATION FUNCTIONALITY
 // =============================================================================
@@ -1422,14 +1681,12 @@ function optimizeSpeechForMobile() {
 }
 
 function optimizeImageGenerationForMobile() {
-    // Adjust image generation defaults for mobile
-    const widthSelect = document.getElementById('image-width');
-    const heightSelect = document.getElementById('image-height');
+    // Set default model for mobile (faster model)
+    const modelSelect = document.getElementById('image-model');
     
-    if (widthSelect && heightSelect) {
-        // Default to smaller sizes on mobile for faster generation with free tier
-        widthSelect.value = '512';
-        heightSelect.value = '512';
+    if (modelSelect) {
+        // Default to recommended model on mobile
+        modelSelect.value = 'stabilityai/stable-diffusion-2-1';
     }
     
     // Add swipe gestures for image gallery
@@ -1437,30 +1694,50 @@ function optimizeImageGenerationForMobile() {
 }
 
 function addTouchOptimizations() {
-    // Prevent double-tap zoom on buttons
+    // Prevent double-tap zoom on buttons but allow proper click events
     const buttons = document.querySelectorAll('button');
     buttons.forEach(button => {
+        let touchStartTime = 0;
+        
+        button.addEventListener('touchstart', function(e) {
+            touchStartTime = Date.now();
+        });
+        
         button.addEventListener('touchend', function(e) {
-            e.preventDefault();
-            this.click();
+            const touchDuration = Date.now() - touchStartTime;
+            // Only prevent default for quick taps (not long presses)
+            if (touchDuration < 300) {
+                e.preventDefault();
+                // Small delay to ensure proper button state
+                setTimeout(() => this.click(), 10);
+            }
         });
     });
     
     // Improve scrolling performance
-    const scrollableElements = document.querySelectorAll('.chat-container, .response-content, .image-modal-body');
+    const scrollableElements = document.querySelectorAll('.chat-container, .response-content, .image-modal-body, .nav-menu');
     scrollableElements.forEach(element => {
         element.style.webkitOverflowScrolling = 'touch';
+        element.style.overscrollBehavior = 'contain';
     });
     
     // Add haptic feedback for supported devices
     if ('vibrate' in navigator) {
-        const actionButtons = document.querySelectorAll('.control-btn, .export-btn, .voice-btn, .generate-btn');
+        const actionButtons = document.querySelectorAll('.control-btn, .export-btn, .voice-btn, .generate-btn, .hamburger-menu');
         actionButtons.forEach(button => {
             button.addEventListener('click', function() {
-                navigator.vibrate(50); // Short vibration for feedback
+                navigator.vibrate(30); // Short vibration for feedback
             });
         });
     }
+    
+    // Improve select dropdown on mobile
+    const selects = document.querySelectorAll('select');
+    selects.forEach(select => {
+        select.addEventListener('touchstart', function() {
+            this.focus();
+        });
+    });
 }
 
 function addSwipeGestureToImageGallery() {
