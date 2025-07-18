@@ -34,6 +34,20 @@
                             <button id="new-session-btn" class="control-btn">New Chat</button>
                             <button id="clear-btn" class="control-btn">Clear</button>
                         </div>
+                        
+                        <div class="control-group export-group">
+                            <label>Export:</label>
+                            <div class="export-buttons">
+                                <button id="export-word-btn" class="export-btn" title="Export to Word">📄 Word</button>
+                                <button id="export-excel-btn" class="export-btn" title="Export to Excel">📊 Excel</button>
+                                <button id="export-pdf-btn" class="export-btn" title="Export to PDF">📑 PDF</button>
+                            </div>
+                        </div>
+                        
+                        <div class="control-group image-group">
+                            <label>Image Generation:</label>
+                            <button id="image-panel-btn" class="control-btn" title="Generate AI images">🎨 Generate Images</button>
+                        </div>
                     </div>
                 </nav>
             </header>
@@ -65,6 +79,7 @@
                 <!-- Input Row -->
                 <div class="input-row">
                     <textarea id="prompt-input" placeholder="Type your message here..." rows="3"></textarea>
+                    <button id="voice-button" type="button" class="voice-btn" title="Voice input">🎤</button>
                     <button id="send-button" type="button">Send</button>
                 </div>
             </div>
@@ -74,7 +89,6 @@
         <div class="response-area" id="response-area" style="display: none;">
             <div class="response-header">
                 <h2>AI Response</h2>
-                <button id="close-response" class="close-btn">&times;</button>
             </div>
             <div id="response-content" class="response-content">
                 <!-- AI responses will be displayed here in split mode -->
@@ -87,6 +101,55 @@
     
     <!-- Modal overlay for code windows -->
     <div class="modal-overlay" id="modal-overlay"></div>
+    
+    <!-- Image Generation Modal -->
+    <div class="image-modal" id="image-modal" style="display: none;">
+        <div class="image-modal-content">
+            <div class="image-modal-header">
+                <h3>🎨 AI Image Generation (Free via Hugging Face)</h3>
+                <button class="close-btn" id="close-image-modal">&times;</button>
+            </div>
+            <div class="image-modal-body">
+                <div class="image-form">
+                    <div class="form-group">
+                        <label for="image-prompt">Image Prompt:</label>
+                        <textarea id="image-prompt" placeholder="Describe the image you want to generate..." rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="negative-prompt">Negative Prompt (optional):</label>
+                        <textarea id="negative-prompt" placeholder="What you don't want in the image..." rows="2"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="image-width">Width:</label>
+                            <select id="image-width">
+                                <option value="512" selected>512px (Recommended)</option>
+                                <option value="768">768px</option>
+                                <option value="1024">1024px</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="image-height">Height:</label>
+                            <select id="image-height">
+                                <option value="512" selected>512px (Recommended)</option>
+                                <option value="768">768px</option>
+                                <option value="1024">1024px</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button id="generate-image-btn" class="generate-btn">🎨 Generate Image (Free)</button>
+                        <button id="setup-replicate-btn" class="setup-btn" style="display: none;">⚙️ Add HF Token (Optional)</button>
+                    </div>
+                </div>
+                <div class="image-gallery" id="image-gallery">
+                    <div class="gallery-placeholder">
+                        <p>Generated images will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <script src="../static/js/app.js"></script>
 </body>

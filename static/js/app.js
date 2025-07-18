@@ -9,7 +9,8 @@ let claudeCodeAvailable = false;
 
 // DOM Elements
 let chatContainer, promptInput, sendButton, modelSelect, fileInput, fileButton, fileInfo, filePreview;
-let mainContainer, responseArea, responseContent, closeResponseBtn, modalOverlay;
+let mainContainer, responseArea, responseContent, closeResponseBtn, modalOverlay, voiceButton;
+let imageModal, imagePanelBtn, generateImageBtn, setupReplicateBtn;
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function () {
@@ -18,6 +19,8 @@ document.addEventListener('DOMContentLoaded', function () {
     loadModels();
     initializeHamburgerMenu();
     showWelcomeMessage(); // Add welcome message on page load
+    updateExportButtonStates(); // Initialize export button states
+    initializeMobileOptimizations(); // Initialize mobile-specific features
 
     // Check Claude Code status
     checkClaudeCodeStatus();
@@ -34,15 +37,21 @@ function initializeElements() {
     fileButton = document.getElementById('file-button');
     fileInfo = document.getElementById('file-info');
     filePreview = document.getElementById('file-preview');
+    voiceButton = document.getElementById('voice-button');
 
     // Split mode elements
     mainContainer = document.getElementById('main-container');
     responseArea = document.getElementById('response-area');
     responseContent = document.getElementById('response-content');
-    closeResponseBtn = document.getElementById('close-response');
 
     // Modal overlay elements
     modalOverlay = document.getElementById('modal-overlay');
+    
+    // Image generation elements
+    imageModal = document.getElementById('image-modal');
+    imagePanelBtn = document.getElementById('image-panel-btn');
+    generateImageBtn = document.getElementById('generate-image-btn');
+    setupReplicateBtn = document.getElementById('setup-replicate-btn');
 }
 
 function initializeEventListeners() {
@@ -71,11 +80,22 @@ function initializeEventListeners() {
     // Control buttons
     document.getElementById('new-session-btn').addEventListener('click', createNewSession);
     document.getElementById('clear-btn').addEventListener('click', clearChat);
+    
+    // Export buttons
+    document.getElementById('export-word-btn').addEventListener('click', () => exportSession('word'));
+    document.getElementById('export-excel-btn').addEventListener('click', () => exportSession('excel'));
+    document.getElementById('export-pdf-btn').addEventListener('click', () => exportSession('pdf'));
+    
+    // Voice button
+    voiceButton.addEventListener('click', toggleVoiceRecording);
+    
+    // Image generation buttons
+    imagePanelBtn.addEventListener('click', showImageModal);
+    generateImageBtn.addEventListener('click', generateImage);
+    setupReplicateBtn.addEventListener('click', setupReplicateApiKey);
+    document.getElementById('close-image-modal').addEventListener('click', hideImageModal);
 
-    // Split mode controls
-    if (closeResponseBtn) {
-        closeResponseBtn.addEventListener('click', exitSplitMode);
-    }
+    // Split mode controls - removed close button functionality
 
     // Model selection handling
     modelSelect.addEventListener('change', function (e) {
@@ -796,6 +816,7 @@ async function createNewSession() {
             exitSplitMode(); // Exit split mode for new session
             clearChat();
             addMessage('🎉 New chat session started!', 'system');
+            updateExportButtonStates(); // Update export button states
         }
     } catch (error) {
         console.error('Error creating new session:', error);
@@ -806,8 +827,10 @@ async function createNewSession() {
 // Clear chat - Updated to show welcome message after clearing
 function clearChat() {
     chatContainer.innerHTML = '';
-    exitSplitMode(); // Exit split mode when clearing chat
+    clearFileSelection();
+    exitSplitMode(); // Exit split mode when starting new conversation
     showWelcomeMessage(); // Show welcome message after clearing
+    updateExportButtonStates(); // Update export button states
 }
 
 // Session loading removed - sessions panel no longer available
@@ -906,4 +929,579 @@ function handleClaudeCodeModelSelection(selectedModel) {
     }
     return true;
 }
+
+// =============================================================================
+// EXPORT FUNCTIONALITY
+// =============================================================================
+
+async function exportSession(format) {
+    if (!currentSessionId) {
+        addMessage('⚠️ No active session to export. Please start a conversation first.', 'system');
+        return;
+    }
+
+    // Disable export buttons during export
+    const exportButtons = document.querySelectorAll('.export-btn');
+    exportButtons.forEach(btn => btn.disabled = true);
+
+    try {
+        const response = await fetch(`/api/export/${format}/${currentSessionId}`);
+        
+        if (response.ok) {
+            // Get filename from response headers or create default
+            const contentDisposition = response.headers.get('content-disposition');
+            let filename = `chat_session_${currentSessionId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.${format === 'word' ? 'docx' : format === 'excel' ? 'xlsx' : 'pdf'}`;
+            
+            if (contentDisposition) {
+                const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (match && match[1]) {
+                    filename = match[1].replace(/['"]/g, '');
+                }
+            }
+
+            // Download the file
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            addMessage(`✅ Chat exported to ${format.toUpperCase()} successfully!`, 'system');
+        } else {
+            const errorData = await response.json();
+            addMessage(`❌ Export failed: ${errorData.error}`, 'system');
+        }
+    } catch (error) {
+        console.error('Export error:', error);
+        addMessage(`❌ Export failed: ${error.message}`, 'system');
+    } finally {
+        // Re-enable export buttons
+        exportButtons.forEach(btn => btn.disabled = false);
+    }
+}
+
+// Initialize export button states
+function updateExportButtonStates() {
+    const exportButtons = document.querySelectorAll('.export-btn');
+    const hasSession = currentSessionId !== null;
+    
+    exportButtons.forEach(btn => {
+        btn.disabled = !hasSession;
+        btn.title = hasSession ? btn.title : 'Start a conversation to enable export';
+    });
+}
+
+// =============================================================================
+// SPEECH RECOGNITION FUNCTIONALITY
+// =============================================================================
+
+// Speech recognition variables
+let recognition = null;
+let isRecording = false;
+let speechSupported = false;
+
+// Initialize speech recognition
+function initializeSpeechRecognition() {
+    // Check if speech recognition is supported
+    if ('webkitSpeechRecognition' in window) {
+        recognition = new webkitSpeechRecognition();
+        speechSupported = true;
+    } else if ('SpeechRecognition' in window) {
+        recognition = new SpeechRecognition();
+        speechSupported = true;
+    } else {
+        speechSupported = false;
+        voiceButton.disabled = true;
+        voiceButton.title = 'Speech recognition not supported in this browser';
+        console.warn('Speech recognition not supported');
+        return;
+    }
+
+    // Configure speech recognition
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    // Event handlers
+    recognition.onstart = function() {
+        isRecording = true;
+        voiceButton.classList.add('recording');
+        voiceButton.title = 'Recording... Click to stop';
+        console.log('Speech recognition started');
+    };
+
+    recognition.onresult = function(event) {
+        const transcript = event.results[0][0].transcript;
+        console.log('Speech recognition result:', transcript);
+        
+        // Add the transcribed text to the input
+        if (transcript.trim()) {
+            const currentText = promptInput.value.trim();
+            const newText = currentText ? currentText + ' ' + transcript : transcript;
+            promptInput.value = newText;
+            promptInput.focus();
+            
+            // Auto-resize textarea if needed
+            promptInput.style.height = 'auto';
+            promptInput.style.height = promptInput.scrollHeight + 'px';
+            
+            addMessage(`🎤 Voice input captured: "${transcript}"`, 'system');
+        }
+    };
+
+    recognition.onerror = function(event) {
+        console.error('Speech recognition error:', event.error);
+        
+        let errorMessage = 'Voice recognition error';
+        switch(event.error) {
+            case 'network':
+                errorMessage = 'Network error during voice recognition';
+                break;
+            case 'not-allowed':
+                errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+                break;
+            case 'no-speech':
+                errorMessage = 'No speech detected. Please try again.';
+                break;
+            case 'audio-capture':
+                errorMessage = 'Microphone not found or not working';
+                break;
+            default:
+                errorMessage = `Voice recognition error: ${event.error}`;
+        }
+        
+        addMessage(`❌ ${errorMessage}`, 'system');
+        stopVoiceRecording();
+    };
+
+    recognition.onend = function() {
+        console.log('Speech recognition ended');
+        stopVoiceRecording();
+    };
+}
+
+// Toggle voice recording
+function toggleVoiceRecording() {
+    if (!speechSupported) {
+        addMessage('❌ Speech recognition is not supported in this browser', 'system');
+        return;
+    }
+
+    if (isRecording) {
+        stopVoiceRecording();
+    } else {
+        startVoiceRecording();
+    }
+}
+
+// Start voice recording
+function startVoiceRecording() {
+    if (!recognition || isRecording) return;
+
+    try {
+        recognition.start();
+        addMessage('🎤 Listening... Speak now', 'system');
+    } catch (error) {
+        console.error('Error starting speech recognition:', error);
+        addMessage('❌ Failed to start voice recording', 'system');
+    }
+}
+
+// Stop voice recording
+function stopVoiceRecording() {
+    if (recognition && isRecording) {
+        recognition.stop();
+    }
+    
+    isRecording = false;
+    voiceButton.classList.remove('recording', 'processing');
+    voiceButton.title = 'Voice input';
+}
+
+// Initialize speech recognition when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(initializeSpeechRecognition, 100); // Small delay to ensure all elements are loaded
+    checkHuggingFaceStatus(); // Check Hugging Face API status on load
+});
+
+// =============================================================================
+// IMAGE GENERATION FUNCTIONALITY
+// =============================================================================
+
+// Image generation variables
+let huggingFaceAvailable = false;
+
+// Check Hugging Face API status
+async function checkHuggingFaceStatus() {
+    try {
+        const response = await fetch('/api/huggingface/status');
+        const data = await response.json();
+        
+        huggingFaceAvailable = data.available;
+        
+        if (!data.sdk_installed) {
+            imagePanelBtn.disabled = true;
+            imagePanelBtn.title = 'Image generation not available - Hugging Face SDK not installed';
+        } else if (data.free_tier) {
+            // Free tier is available
+            setupReplicateBtn.style.display = data.has_api_key ? 'none' : 'inline-block';
+            setupReplicateBtn.textContent = '⚙️ Add HF Token (Optional)';
+            setupReplicateBtn.title = 'Add Hugging Face token for better rate limits (optional)';
+            generateImageBtn.disabled = false;
+            imagePanelBtn.title = 'Generate AI images (Free via Hugging Face)';
+        } else {
+            setupReplicateBtn.style.display = 'none';
+            generateImageBtn.disabled = false;
+            imagePanelBtn.title = 'Generate AI images';
+        }
+        
+        return data;
+    } catch (error) {
+        console.error('Error checking Hugging Face status:', error);
+        imagePanelBtn.disabled = true;
+        imagePanelBtn.title = 'Image generation service unavailable';
+        return { available: false, sdk_installed: false, has_api_key: false };
+    }
+}
+
+// Setup Hugging Face API key
+async function setupReplicateApiKey() {
+    const apiKey = prompt('Enter your Hugging Face API token (optional):\n\nThis improves rate limits but is not required for free usage.\nYou can get one at https://huggingface.co/settings/tokens');
+
+    if (!apiKey || !apiKey.trim()) {
+        addMessage('ℹ️ No token provided. You can still use image generation with the free tier.', 'system');
+        return false;
+    }
+
+    try {
+        const response = await fetch('/api/huggingface/api-key', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ api_key: apiKey.trim() })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            huggingFaceAvailable = data.available;
+            addMessage(`✅ Hugging Face API token set successfully! You now have improved rate limits.`, 'system');
+            setupReplicateBtn.style.display = 'none';
+            generateImageBtn.disabled = false;
+            return true;
+        } else {
+            addMessage(`❌ Failed to set Hugging Face API token: ${data.error}`, 'system');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error setting Hugging Face API token:', error);
+        addMessage(`❌ Error setting Hugging Face API token: ${error.message}`, 'system');
+        return false;
+    }
+}
+
+// Show image generation modal
+function showImageModal() {
+    if (!huggingFaceAvailable) {
+        const status = checkHuggingFaceStatus();
+        if (!status.available) {
+            addMessage('❌ Image generation is not available. Please check your Hugging Face configuration.', 'system');
+            return;
+        }
+    }
+    
+    imageModal.classList.add('show');
+    imageModal.style.display = 'flex';
+    
+    // Focus on the prompt input
+    setTimeout(() => {
+        document.getElementById('image-prompt').focus();
+    }, 300);
+}
+
+// Hide image generation modal
+function hideImageModal() {
+    imageModal.classList.remove('show');
+    setTimeout(() => {
+        imageModal.style.display = 'none';
+    }, 300);
+}
+
+// Generate image
+async function generateImage() {
+    const prompt = document.getElementById('image-prompt').value.trim();
+    const negativePrompt = document.getElementById('negative-prompt').value.trim();
+    const width = parseInt(document.getElementById('image-width').value);
+    const height = parseInt(document.getElementById('image-height').value);
+    
+    if (!prompt) {
+        addMessage('❌ Please enter a prompt for image generation', 'system');
+        return;
+    }
+    
+    if (!huggingFaceAvailable) {
+        addMessage('❌ Hugging Face API not available. Please check the service status.', 'system');
+        return;
+    }
+    
+    // Disable generate button during generation
+    generateImageBtn.disabled = true;
+    generateImageBtn.textContent = '🎨 Generating...';
+    
+    // Show gallery placeholder
+    const gallery = document.getElementById('image-gallery');
+    gallery.innerHTML = `
+        <div class="gallery-placeholder">
+            <p>🎨 Generating image... This may take 30-60 seconds</p>
+        </div>
+    `;
+    
+    try {
+        const response = await fetch('/api/generate-image', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                prompt: prompt,
+                negative_prompt: negativePrompt,
+                width: width,
+                height: height,
+                num_outputs: 1
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            displayGeneratedImages(data.images, data.prompt);
+            addMessage(`✅ Image generated successfully: "${data.prompt}"`, 'system');
+        } else {
+            addMessage(`❌ Image generation failed: ${data.error}`, 'system');
+            gallery.innerHTML = `
+                <div class="gallery-placeholder">
+                    <p>❌ Generation failed. Try again.</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error generating image:', error);
+        addMessage(`❌ Image generation error: ${error.message}`, 'system');
+        gallery.innerHTML = `
+            <div class="gallery-placeholder">
+                <p>❌ Generation failed. Try again.</p>
+            </div>
+        `;
+    } finally {
+        // Re-enable generate button
+        generateImageBtn.disabled = false;
+        generateImageBtn.textContent = '🎨 Generate Image';
+    }
+}
+
+// Display generated images in gallery
+function displayGeneratedImages(imageUrls, prompt) {
+    const gallery = document.getElementById('image-gallery');
+    
+    if (!imageUrls || imageUrls.length === 0) {
+        gallery.innerHTML = `
+            <div class="gallery-placeholder">
+                <p>No images were generated</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const imagesHtml = imageUrls.map((url, index) => `
+        <div class="gallery-image">
+            <img src="${url}" alt="Generated image: ${prompt}" loading="lazy">
+            <div class="image-actions">
+                <button class="image-action-btn" onclick="downloadImage('${url}', '${prompt}_${index + 1}')" title="Download">
+                    💾
+                </button>
+                <button class="image-action-btn" onclick="copyImageUrl('${url}')" title="Copy URL">
+                    📋
+                </button>
+            </div>
+            <div class="image-info">
+                <div class="image-prompt">${prompt}</div>
+            </div>
+        </div>
+    `).join('');
+    
+    gallery.innerHTML = `<div class="gallery-images">${imagesHtml}</div>`;
+}
+
+// Download image
+function downloadImage(url, filename) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    addMessage('💾 Image download started', 'system');
+}
+
+// Copy image URL
+function copyImageUrl(url) {
+    navigator.clipboard.writeText(url).then(() => {
+        addMessage('📋 Image URL copied to clipboard', 'system');
+    }).catch(err => {
+        console.error('Error copying URL:', err);
+        addMessage('❌ Failed to copy URL', 'system');
+    });
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', function(event) {
+    if (event.target === imageModal) {
+        hideImageModal();
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && imageModal.classList.contains('show')) {
+        hideImageModal();
+    }
+});
+
+// =============================================================================
+// MOBILE OPTIMIZATION FUNCTIONALITY
+// =============================================================================
+
+function initializeMobileOptimizations() {
+    // Detect mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    if (isMobile || isTouch) {
+        // Add mobile class to body
+        document.body.classList.add('mobile-device');
+        
+        // Optimize speech recognition for mobile
+        optimizeSpeechForMobile();
+        
+        // Optimize image generation for mobile
+        optimizeImageGenerationForMobile();
+        
+        // Add touch-specific event listeners
+        addTouchOptimizations();
+        
+        console.log('Mobile optimizations enabled');
+    }
+}
+
+function optimizeSpeechForMobile() {
+    // Check if speech recognition works on this mobile device
+    if (!speechSupported) {
+        voiceButton.style.display = 'none';
+        console.log('Speech recognition not supported on this mobile device');
+        return;
+    }
+    
+    // Mobile-specific speech recognition settings
+    if (recognition) {
+        // Shorter timeout for mobile
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        
+        // Add mobile-specific error handling
+        recognition.addEventListener('error', function(event) {
+            if (event.error === 'not-allowed') {
+                addMessage('❌ Please allow microphone access in your browser settings for voice input to work.', 'system');
+            }
+        });
+    }
+}
+
+function optimizeImageGenerationForMobile() {
+    // Adjust image generation defaults for mobile
+    const widthSelect = document.getElementById('image-width');
+    const heightSelect = document.getElementById('image-height');
+    
+    if (widthSelect && heightSelect) {
+        // Default to smaller sizes on mobile for faster generation with free tier
+        widthSelect.value = '512';
+        heightSelect.value = '512';
+    }
+    
+    // Add swipe gestures for image gallery
+    addSwipeGestureToImageGallery();
+}
+
+function addTouchOptimizations() {
+    // Prevent double-tap zoom on buttons
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(button => {
+        button.addEventListener('touchend', function(e) {
+            e.preventDefault();
+            this.click();
+        });
+    });
+    
+    // Improve scrolling performance
+    const scrollableElements = document.querySelectorAll('.chat-container, .response-content, .image-modal-body');
+    scrollableElements.forEach(element => {
+        element.style.webkitOverflowScrolling = 'touch';
+    });
+    
+    // Add haptic feedback for supported devices
+    if ('vibrate' in navigator) {
+        const actionButtons = document.querySelectorAll('.control-btn, .export-btn, .voice-btn, .generate-btn');
+        actionButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                navigator.vibrate(50); // Short vibration for feedback
+            });
+        });
+    }
+}
+
+function addSwipeGestureToImageGallery() {
+    let startX = 0;
+    let startY = 0;
+    
+    document.addEventListener('touchstart', function(e) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+    });
+    
+    document.addEventListener('touchmove', function(e) {
+        if (!startX || !startY) return;
+        
+        const diffX = startX - e.touches[0].clientX;
+        const diffY = startY - e.touches[0].clientY;
+        
+        // Check if this is a horizontal swipe in the image gallery
+        if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+            const galleryImages = document.querySelectorAll('.gallery-image');
+            if (galleryImages.length > 1 && e.target.closest('.gallery-image')) {
+                // Handle swipe navigation between images
+                e.preventDefault();
+            }
+        }
+        
+        startX = 0;
+        startY = 0;
+    });
+}
+
+// Viewport height fix for mobile browsers
+function setMobileViewportHeight() {
+    const vh = window.innerHeight * 0.01;
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+
+// Update viewport height on resize (for mobile browser toolbar changes)
+window.addEventListener('resize', setMobileViewportHeight);
+window.addEventListener('orientationchange', setMobileViewportHeight);
+
+// Initialize mobile viewport height
+setMobileViewportHeight();
 

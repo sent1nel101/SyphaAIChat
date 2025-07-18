@@ -1,3 +1,15 @@
+# TODO: Development Instructions & Tasks
+
+## PERMANENT INSTRUCTIONS
+**These instructions apply to every step added to this TODO.md:**
+
+1. **Always perform steps in TODO.md** - Work through tasks in order
+2. **Mark steps as complete in ACTIONS.md** - Update ACTIONS.md when each task is finished
+3. **When finding new steps, add them to TODO.md** - Document any new requirements discovered
+4. **When finished with all work, update SUMMARY.md** - Provide comprehensive summary of completed work
+
+---
+
 # TODO: Word/Excel Support & Rich Formatting
 
 ## Phase 1: Backend Dependencies & File Processing
@@ -149,6 +161,13 @@
 - [x] Added proper height and display properties for response area
 - [x] Removed temporary debug buttons and logging
 
+### 9.4 Panel Styling & Persistence
+- [x] Removed close button from response panel header
+- [x] Made response area a permanent styled div (not floating window)
+- [x] Matched styling between input and output panels (background, border-radius, shadows)
+- [x] Made output pane persistent until new chat is started
+- [x] Updated response header with proper border radius and flex properties
+
 ## Phase 10: Testing & Optimization
 
 ### 10.1 Comprehensive Testing
@@ -166,3 +185,33 @@
 - [ ] Add loading indicators for large files
 - [ ] Error handling and user feedback
 - [ ] Documentation updates
+
+## Phase 11: Speech & Image Features
+
+### 11.1 Speech Capture Functionality
+- [ ] Research and integrate Web Speech API for voice input
+- [ ] Add microphone button to interface for voice recording
+- [ ] Implement speech-to-text conversion for search queries
+- [ ] Add audio feedback and visual indicators during recording
+- [ ] Test voice functionality across different browsers and devices
+- [ ] Add voice command support for basic navigation
+
+### 11.2 Image Creation Functionality
+- [ ] Research Flux Kontext API integration options
+- [ ] Evaluate alternative image generation APIs (DALL-E, Midjourney, Stable Diffusion)
+- [ ] Implement image generation API client
+- [ ] Add image creation interface with prompt input
+- [ ] Create image gallery/display functionality
+- [ ] Add image download and export capabilities
+- [ ] Implement prompt history and templates for image generation
+
+### 11.3 Mobile Device Optimization
+- [ ] Audit all existing features for mobile compatibility
+- [ ] Test speech capture on mobile browsers (iOS Safari, Chrome Mobile)
+- [ ] Optimize touch interfaces for mobile image creation
+- [ ] Ensure responsive design works across all screen sizes
+- [ ] Test file upload functionality on mobile devices
+- [ ] Optimize performance for mobile processors and networks
+- [ ] Add mobile-specific UI enhancements (swipe gestures, touch feedback)
+- [ ] Test Claude Code integration on mobile browsers
+- [ ] Verify document processing works on mobile uploads

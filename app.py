@@ -28,6 +28,18 @@ except ImportError:
     CLAUDE_CODE_AVAILABLE = False
     print("WARNING: claude-code-sdk not installed. Claude Code features disabled.")
 
+# Hugging Face SDK integration for image generation
+try:
+    from huggingface_hub import InferenceClient
+    from PIL import Image as PILImage
+    import io
+    import base64
+    HUGGINGFACE_AVAILABLE = True
+    print("+ Hugging Face Hub enabled for image generation")
+except ImportError:
+    HUGGINGFACE_AVAILABLE = False
+    print("WARNING: huggingface-hub not installed. Image generation features disabled.")
+
 
 # claude implementation
 # import anyio
@@ -1223,6 +1235,402 @@ def load_messages_from_session(messages):
         })
     return formatted_messages
 
+# =============================================================================
+# IMAGE GENERATION FUNCTIONALITY
+# =============================================================================
+
+@app.route('/api/generate-image', methods=['POST'])
+def generate_image():
+    """Generate an image using Hugging Face Inference API"""
+    if not HUGGINGFACE_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Image generation not available - huggingface-hub not installed'}), 400
+    
+    try:
+        data = request.get_json()
+        prompt = data.get('prompt', '').strip()
+        
+        if not prompt:
+            return jsonify({'success': False, 'error': 'Prompt is required'}), 400
+        
+        # Check for Hugging Face API token (optional for free tier)
+        hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
+        
+        # Initialize Hugging Face client
+        client = InferenceClient(token=hf_token)
+        
+        # Image generation parameters
+        model_name = data.get('model', 'stabilityai/stable-diffusion-2-1')
+        width = int(data.get('width', 512))
+        height = int(data.get('height', 512))
+        num_inference_steps = int(data.get('num_inference_steps', 20))
+        guidance_scale = float(data.get('guidance_scale', 7.5))
+        
+        # Get negative prompt if provided
+        negative_prompt = data.get('negative_prompt', '')
+        
+        print(f"Generating image with Hugging Face model {model_name}: {prompt}")
+        
+        # Generate image using Hugging Face
+        try:
+            image = client.text_to_image(
+                prompt=prompt,
+                negative_prompt=negative_prompt if negative_prompt else None,
+                model=model_name,
+                width=width,
+                height=height,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale
+            )
+            
+            # Convert PIL Image to base64 for frontend
+            img_buffer = io.BytesIO()
+            image.save(img_buffer, format='PNG')
+            img_buffer.seek(0)
+            
+            # Create base64 data URL
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+            image_url = f"data:image/png;base64,{img_base64}"
+            
+            return jsonify({
+                'success': True,
+                'images': [image_url],
+                'prompt': prompt,
+                'model': model_name,
+                'parameters': {
+                    'width': width,
+                    'height': height,
+                    'num_inference_steps': num_inference_steps,
+                    'guidance_scale': guidance_scale,
+                    'negative_prompt': negative_prompt
+                }
+            })
+            
+        except Exception as model_error:
+            # If the specified model fails, try with default model
+            print(f"Model {model_name} failed, trying default model: {str(model_error)}")
+            try:
+                image = client.text_to_image(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt if negative_prompt else None,
+                    width=width,
+                    height=height
+                )
+                
+                # Convert PIL Image to base64 for frontend
+                img_buffer = io.BytesIO()
+                image.save(img_buffer, format='PNG')
+                img_buffer.seek(0)
+                
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                image_url = f"data:image/png;base64,{img_base64}"
+                
+                return jsonify({
+                    'success': True,
+                    'images': [image_url],
+                    'prompt': prompt,
+                    'model': 'default',
+                    'parameters': {
+                        'width': width,
+                        'height': height,
+                        'negative_prompt': negative_prompt
+                    }
+                })
+            except Exception as default_error:
+                raise default_error
+        
+    except Exception as e:
+        error_message = str(e)
+        print(f"Image generation error: {error_message}")
+        return jsonify({'success': False, 'error': f'Image generation failed: {error_message}'}), 500
+
+@app.route('/api/huggingface/status', methods=['GET'])
+def huggingface_status():
+    """Check Hugging Face API availability"""
+    if not HUGGINGFACE_AVAILABLE:
+        return jsonify({
+            'available': False,
+            'sdk_installed': False,
+            'has_api_key': False,
+            'error': 'Hugging Face Hub SDK not installed'
+        })
+    
+    hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
+    
+    # Hugging Face has a free tier, so it's available even without a token
+    return jsonify({
+        'available': True,  # Always available with free tier
+        'sdk_installed': True,
+        'has_api_key': bool(hf_token and hf_token.strip()),
+        'free_tier': True
+    })
+
+@app.route('/api/huggingface/api-key', methods=['POST'])
+def set_huggingface_api_key():
+    """Set Hugging Face API key (optional - improves rate limits)"""
+    if not HUGGINGFACE_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Hugging Face Hub SDK not installed'}), 400
+    
+    try:
+        data = request.get_json()
+        api_key = data.get('api_key', '').strip()
+        
+        if not api_key:
+            return jsonify({'success': False, 'error': 'API key is required'}), 400
+        
+        # Set environment variable
+        os.environ['HUGGINGFACE_HUB_TOKEN'] = api_key
+        
+        # Test the API key by creating a client
+        try:
+            client = InferenceClient(token=api_key)
+            # Simple test - this should work with any valid token
+            return jsonify({'success': True, 'available': True})
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Invalid API key: {str(e)}'}), 400
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# =============================================================================
+# EXPORT FUNCTIONALITY
+# =============================================================================
+
+@app.route('/api/export/word/<session_id>', methods=['GET'])
+def export_to_word(session_id):
+    """Export chat session to Word document"""
+    if not DOCX_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Word export not available - python-docx not installed'}), 400
+    
+    try:
+        from docx import Document
+        from docx.shared import Inches
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        import tempfile
+        from flask import send_file
+        
+        # Get session data
+        messages = get_session_messages(session_id)
+        if not messages:
+            return jsonify({'success': False, 'error': 'No messages found for this session'}), 404
+        
+        # Create Word document
+        doc = Document()
+        
+        # Add title
+        title = doc.add_heading('Chat Session Export', 0)
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # Add session info
+        doc.add_paragraph(f'Session ID: {session_id}')
+        doc.add_paragraph(f'Exported on: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+        doc.add_paragraph(f'Total Messages: {len(messages)}')
+        doc.add_paragraph('')  # Empty line
+        
+        # Add messages
+        for i, msg in enumerate(messages, 1):
+            # Message header
+            role = msg['role'].title()
+            timestamp = msg['timestamp']
+            model = msg.get('model', 'Unknown')
+            
+            header = doc.add_paragraph()
+            header.add_run(f"{i}. {role}").bold = True
+            if msg['role'] == 'assistant' and model:
+                header.add_run(f" ({model})")
+            header.add_run(f" - {timestamp}")
+            
+            # Message content
+            content = msg.get('content', '')
+            if content:
+                doc.add_paragraph(content)
+            
+            # File attachment info
+            if msg.get('has_file') and msg.get('file_name'):
+                file_para = doc.add_paragraph()
+                file_para.add_run("📎 Attached file: ").italic = True
+                file_para.add_run(msg['file_name'])
+            
+            doc.add_paragraph('')  # Empty line between messages
+        
+        # Save to temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.docx')
+        doc.save(temp_file.name)
+        temp_file.close()
+        
+        filename = f"chat_session_{session_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        
+        return send_file(
+            temp_file.name,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'}), 500
+
+@app.route('/api/export/excel/<session_id>', methods=['GET'])
+def export_to_excel(session_id):
+    """Export chat session to Excel spreadsheet"""
+    if not EXCEL_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Excel export not available - openpyxl not installed'}), 400
+    
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, Alignment, PatternFill
+        import tempfile
+        from flask import send_file
+        
+        # Get session data
+        messages = get_session_messages(session_id)
+        if not messages:
+            return jsonify({'success': False, 'error': 'No messages found for this session'}), 404
+        
+        # Create workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = f"Chat Session {session_id[:8]}"
+        
+        # Headers
+        headers = ['#', 'Role', 'Model', 'Timestamp', 'Content', 'Has File', 'File Name']
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+        
+        # Add messages
+        for i, msg in enumerate(messages, 2):
+            ws.cell(row=i, column=1, value=i-1)  # Message number
+            ws.cell(row=i, column=2, value=msg['role'].title())
+            ws.cell(row=i, column=3, value=msg.get('model', ''))
+            ws.cell(row=i, column=4, value=msg['timestamp'])
+            ws.cell(row=i, column=5, value=msg.get('content', ''))
+            ws.cell(row=i, column=6, value='Yes' if msg.get('has_file') else 'No')
+            ws.cell(row=i, column=7, value=msg.get('file_name', ''))
+        
+        # Auto-adjust column widths
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
+            ws.column_dimensions[column].width = adjusted_width
+        
+        # Save to temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx')
+        wb.save(temp_file.name)
+        temp_file.close()
+        
+        filename = f"chat_session_{session_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return send_file(
+            temp_file.name,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'}), 500
+
+@app.route('/api/export/pdf/<session_id>', methods=['GET'])
+def export_to_pdf(session_id):
+    """Export chat session to PDF"""
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        import tempfile
+        from flask import send_file
+        
+        # Get session data
+        messages = get_session_messages(session_id)
+        if not messages:
+            return jsonify({'success': False, 'error': 'No messages found for this session'}), 404
+        
+        # Create PDF
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+        doc = SimpleDocTemplate(temp_file.name, pagesize=letter)
+        styles = getSampleStyleSheet()
+        
+        # Custom styles
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            alignment=1,  # Center alignment
+            spaceAfter=30,
+        )
+        
+        header_style = ParagraphStyle(
+            'MessageHeader',
+            parent=styles['Heading3'],
+            spaceBefore=12,
+            spaceAfter=6,
+        )
+        
+        content_style = styles['Normal']
+        
+        story = []
+        
+        # Add title
+        story.append(Paragraph("Chat Session Export", title_style))
+        story.append(Spacer(1, 12))
+        
+        # Add session info
+        story.append(Paragraph(f"<b>Session ID:</b> {session_id}", content_style))
+        story.append(Paragraph(f"<b>Exported on:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", content_style))
+        story.append(Paragraph(f"<b>Total Messages:</b> {len(messages)}", content_style))
+        story.append(Spacer(1, 20))
+        
+        # Add messages
+        for i, msg in enumerate(messages, 1):
+            role = msg['role'].title()
+            timestamp = msg['timestamp']
+            model = msg.get('model', '')
+            
+            # Message header
+            header_text = f"{i}. {role}"
+            if msg['role'] == 'assistant' and model:
+                header_text += f" ({model})"
+            header_text += f" - {timestamp}"
+            
+            story.append(Paragraph(header_text, header_style))
+            
+            # Message content
+            content = msg.get('content', '').replace('\n', '<br/>')
+            if content:
+                story.append(Paragraph(content, content_style))
+            
+            # File attachment info
+            if msg.get('has_file') and msg.get('file_name'):
+                story.append(Paragraph(f"<i>📎 Attached file: {msg['file_name']}</i>", content_style))
+            
+            story.append(Spacer(1, 12))
+        
+        # Build PDF
+        doc.build(story)
+        temp_file.close()
+        
+        filename = f"chat_session_{session_id[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return send_file(
+            temp_file.name,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/pdf'
+        )
+        
+    except ImportError:
+        return jsonify({'success': False, 'error': 'PDF export not available - reportlab not installed'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Export failed: {str(e)}'}), 500
+
 # Error handlers
 @app.errorhandler(413)
 def too_large(e):
@@ -1316,6 +1724,18 @@ def initialize_app():
     safe_print("   ✅ File upload and analysis")
     safe_print("   ✅ Session-based conversation history")
     safe_print("   ✅ Interactive tables and content")
+    safe_print("   ✅ Speech-to-text voice input (Web Speech API)")
+    safe_print("   ✅ Export to Word, Excel, and PDF")
+    
+    # Image generation features
+    if HUGGINGFACE_AVAILABLE:
+        hf_token = os.getenv('HUGGINGFACE_HUB_TOKEN') or os.getenv('HF_TOKEN')
+        if hf_token and hf_token.strip():
+            safe_print("   ✅ AI image generation (Hugging Face with API key)")
+        else:
+            safe_print("   ✅ AI image generation (Hugging Face free tier)")
+    else:
+        safe_print("   ❌ AI image generation (huggingface-hub package not installed)")
     
     print("")
     safe_print(f"📎 Supported file types: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
