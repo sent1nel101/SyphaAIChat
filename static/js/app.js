@@ -110,70 +110,6 @@ function initializeEventListeners() {
 
     // Split mode controls - removed close button functionality
 
-    // Model selection handling
-    modelSelect.addEventListener('change', function (e) {
-        const selectedModel = e.target.value;
-        if (!handleClaudeCodeModelSelection(selectedModel)) {
-            // If Claude Code selection was invalid, prevent the change
-            e.preventDefault();
-        }
-    });
-}
-
-// Hamburger menu functionality
-function initializeHamburgerMenu() {
-    const hamburgerMenu = document.getElementById('hamburger-menu');
-    const navMenu = document.getElementById('nav-menu');
-    const menuOverlay = document.getElementById('menu-overlay');
-
-    function toggleMenu() {
-        hamburgerMenu.classList.toggle('active');
-        navMenu.classList.toggle('active');
-        menuOverlay.classList.toggle('active');
-
-        // Prevent body scroll when menu is open
-        if (navMenu.classList.contains('active')) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-        }
-    }
-
-    function closeMenu() {
-        hamburgerMenu.classList.remove('active');
-        navMenu.classList.remove('active');
-        menuOverlay.classList.remove('active');
-        document.body.style.overflow = '';
-    }
-
-    // Toggle menu when hamburger is clicked
-    hamburgerMenu.addEventListener('click', toggleMenu);
-
-    // Close menu when overlay is clicked
-    menuOverlay.addEventListener('click', closeMenu);
-
-    // Close menu when a menu item is clicked (on mobile)
-    navMenu.addEventListener('click', function (e) {
-        if (e.target.classList.contains('control-btn') || 
-            e.target.classList.contains('export-btn') || 
-            e.target.id === 'image-panel-btn') {
-            closeMenu();
-        }
-    });
-
-    // Close menu on window resize if screen becomes larger
-    window.addEventListener('resize', function () {
-        if (window.innerWidth > 768) {
-            closeMenu();
-        }
-    });
-
-    // Close menu on escape key
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') {
-            closeMenu();
-        }
-    });
 }
 
 // Show welcome message - Updated to be a simple AI greeting
@@ -183,7 +119,7 @@ function showWelcomeMessage(hasError = false) {
 
 I'm having trouble connecting to Ollama. Please make sure:
 - Ollama is running (\`ollama serve\`)
-- You have at least one model installed (\`ollama pull llama2\`)
+- You have at least one model installed (\`ollama pull llama3.2\`)
 
 Once that's sorted, I'll be ready to help! 😊`;
 
@@ -270,7 +206,7 @@ async function loadModels() {
         console.error('Error loading models:', error);
 
         // Fallback: Add some common models manually
-        const fallbackModels = ['llama2', 'llama2:7b', 'llama2:13b', 'codellama', 'mistral', 'phi', 'neural-chat'];
+        const fallbackModels = ['llama3.2', 'mistral', 'qwen2.5'];
 
         modelSelect.innerHTML = '<option value="">Select a model</option>';
 
@@ -351,10 +287,13 @@ async function sendMessage() {
             // Enter split mode when AI responds
             enterSplitMode();
 
-            // Add assistant response ONLY to split view (not main chat)
-            // Use formatted_content if available, otherwise fall back to content
+            const isHtml = Boolean(data.message.formatted_content);
             const responseContent = data.message.formatted_content || data.message.content;
-            addResponseToSplitView(responseContent, selectedModel);
+            const answeredBy = data.model || selectedModel;
+            if (data.fallback) {
+                addMessage(`⚠️ ${selectedModel} was unavailable, so ${answeredBy} answered instead.`, 'system');
+            }
+            addResponseToSplitView(responseContent, answeredBy, true, isHtml);
         } else {
             throw new Error(data.error || 'Unknown error occurred');
         }
@@ -385,19 +324,17 @@ function addMessage(content, role, model = null, hasFile = false, fileName = nul
         const fileIcon = getFileIcon(fileType);
         messageContent += `<div class="file-indicator ${fileType}">
             <span class="file-icon">${fileIcon}</span>
-            <span class="file-name">${fileName}</span>
+            <span class="file-name">${escapeHtml(fileName)}</span>
             <span class="file-type">${fileType.toUpperCase()}</span>
         </div>`;
     }
 
-    // Enhanced message content with proper HTML rendering
-    const formattedContent = enhanceMessageContent(content, role);
-    messageContent += `<div class="message-content">${formattedContent}</div>`;
+    messageContent += `<div class="message-content">${enhanceMessageContent(content)}</div>`;
 
     if (model) {
         messageContent += `<div class="model-info">
             <span class="model-label">Model:</span>
-            <span class="model-name">${model}</span>
+            <span class="model-name">${escapeHtml(model)}</span>
         </div>`;
     }
 
@@ -555,25 +492,20 @@ function getFileIcon(fileType) {
     return iconMap[fileType] || '📎';
 }
 
-function enhanceMessageContent(content, role) {
-    // If content is already HTML (from backend formatting), return as-is
-    if (content.includes('<') && content.includes('>')) {
-        return content;
-    }
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+}
 
-    // Basic client-side enhancement for unformatted content
-    let enhanced = content;
-
-    // Convert URLs to links
-    enhanced = enhanced.replace(
-        /(https?:\/\/[^\s]+)/g,
-        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
-
-    // Convert line breaks to proper HTML
-    enhanced = enhanced.replace(/\n/g, '<br>');
-
-    return enhanced;
+// Plain text (user input, client-side notices, error text) -> safe HTML.
+// Server-formatted HTML must not go through here; it is already sanitized.
+function enhanceMessageContent(content) {
+    return escapeHtml(content)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/\n/g, '<br>');
 }
 
 function scrollToBottom() {
@@ -772,7 +704,7 @@ function exitSplitMode() {
     }, 300);
 }
 
-function addResponseToSplitView(content, model = null, isLatest = true) {
+function addResponseToSplitView(content, model = null, isLatest = true, isHtml = false) {
     if (!isSplitMode || !responseContent) {
         return;
     }
@@ -782,14 +714,14 @@ function addResponseToSplitView(content, model = null, isLatest = true) {
 
     let messageContent = '';
 
-    // Use formatted content directly if it contains HTML, otherwise enhance it
-    const formattedContent = content.includes('<') ? content : enhanceMessageContent(content, 'assistant');
+    // isHtml: server-formatted (sanitized) HTML; anything else is escaped
+    const formattedContent = isHtml ? content : enhanceMessageContent(content);
     messageContent += `<div class="message-content">${formattedContent}</div>`;
 
     if (model) {
         messageContent += `<div class="model-info">
             <span class="model-label">Model:</span>
-            <span class="model-name">${model}</span>
+            <span class="model-name">${escapeHtml(model)}</span>
         </div>`;
     }
 
@@ -889,60 +821,6 @@ async function checkClaudeCodeStatus() {
         console.error('Error checking Claude Code status:', error);
         return { available: false, sdk_installed: false, has_api_key: false };
     }
-}
-
-async function setupClaudeCodeApiKey() {
-    const apiKey = prompt('Enter your Claude Code API key:');
-
-    if (!apiKey || !apiKey.trim()) {
-        return false;
-    }
-
-    try {
-        const response = await fetch('/api/claude-code/api-key', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ api_key: apiKey.trim() })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            claudeCodeAvailable = data.available;
-            addMessage(`✅ Claude Code API key set successfully! You can now use Claude Code model.`, 'system');
-            // Reload models to show Claude Code as available
-            loadModels();
-            return true;
-        } else {
-            addMessage(`❌ Failed to set Claude Code API key: ${data.error}`, 'system');
-            return false;
-        }
-    } catch (error) {
-        console.error('Error setting Claude Code API key:', error);
-        addMessage(`❌ Error setting Claude Code API key: ${error.message}`, 'system');
-        return false;
-    }
-}
-
-function handleClaudeCodeModelSelection(selectedModel) {
-    // If Claude Code model is selected but not available, prompt for API key
-    if (selectedModel === 'claude-code' && !claudeCodeAvailable) {
-        const message = `Claude Code requires an API key. Would you like to set it up now?`;
-
-        if (confirm(message)) {
-            setupClaudeCodeApiKey();
-        } else {
-            // Reset to first available model
-            const firstModel = modelSelect.options[0]?.value || '';
-            if (firstModel && firstModel !== 'claude-code') {
-                modelSelect.value = firstModel;
-            }
-        }
-        return false;
-    }
-    return true;
 }
 
 // =============================================================================
@@ -1164,15 +1042,15 @@ async function checkHuggingFaceStatus() {
         } else if (data.token_required) {
             // Token is required for image generation
             setupReplicateBtn.style.display = data.has_api_key ? 'none' : 'inline-block';
-            setupReplicateBtn.textContent = '⚙️ Setup HF Token (Required)';
-            setupReplicateBtn.title = 'Hugging Face token required for image generation';
+            setupReplicateBtn.textContent = 'ℹ️ HF Token Required';
+            setupReplicateBtn.title = 'Add HF_TOKEN to the server .env file to enable image generation';
             generateImageBtn.disabled = !data.has_api_key;
             
             if (data.has_api_key) {
                 imagePanelBtn.title = 'Generate AI images via Hugging Face';
                 imagePanelBtn.disabled = false;
             } else {
-                imagePanelBtn.title = 'Setup Hugging Face token first to generate images';
+                imagePanelBtn.title = 'Add HF_TOKEN to the server .env file to generate images';
                 imagePanelBtn.disabled = true;
             }
         } else {
@@ -1190,41 +1068,9 @@ async function checkHuggingFaceStatus() {
     }
 }
 
-// Setup Hugging Face API key
-async function setupReplicateApiKey() {
-    const apiKey = prompt('Enter your Hugging Face API token (REQUIRED for image generation):\n\nGet your free token at: https://huggingface.co/settings/tokens\n\n1. Sign up/login to Hugging Face\n2. Go to Settings > Access Tokens\n3. Create a new token\n4. Copy and paste it here');
-
-    if (!apiKey || !apiKey.trim()) {
-        addMessage('❌ Hugging Face API token is required for image generation. Please get one at https://huggingface.co/settings/tokens', 'system');
-        return false;
-    }
-
-    try {
-        const response = await fetch('/api/huggingface/api-key', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ api_key: apiKey.trim() })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            huggingFaceAvailable = data.available;
-            addMessage(`✅ Hugging Face API token set successfully! You now have improved rate limits.`, 'system');
-            setupReplicateBtn.style.display = 'none';
-            generateImageBtn.disabled = false;
-            return true;
-        } else {
-            addMessage(`❌ Failed to set Hugging Face API token: ${data.error}`, 'system');
-            return false;
-        }
-    } catch (error) {
-        console.error('Error setting Hugging Face API token:', error);
-        addMessage(`❌ Error setting Hugging Face API token: ${error.message}`, 'system');
-        return false;
-    }
+// Credentials are only read from the server's .env file
+function setupReplicateApiKey() {
+    addMessage('ℹ️ Image and video generation need a Hugging Face token. Add HF_TOKEN=... to the .env file on the server and restart the app. Get a token at https://huggingface.co/settings/tokens', 'system');
 }
 
 // Show image generation modal
@@ -1569,10 +1415,11 @@ function displayGeneratedVideos(videoUrls, prompt) {
     
     const videosHtml = videoUrls.map((url, index) => `
         <div class="gallery-video">
-            <video controls style="width: 100%; max-width: 400px;">
-                <source src="${url}" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
+            ${url.startsWith('data:image/')
+                ? `<img src="${url}" alt="Generated animation" style="width: 100%; max-width: 400px;">`
+                : `<video controls src="${url}" style="width: 100%; max-width: 400px;">
+                       Your browser does not support the video tag.
+                   </video>`}
             <div class="video-actions">
                 <button class="video-action-btn" onclick="downloadVideo('${url}', '${prompt}_${index + 1}')" title="Download">
                     💾
@@ -1686,7 +1533,7 @@ function optimizeImageGenerationForMobile() {
     
     if (modelSelect) {
         // Default to recommended model on mobile
-        modelSelect.value = 'stabilityai/stable-diffusion-2-1';
+        modelSelect.value = 'black-forest-labs/FLUX.1-schnell';
     }
     
     // Add swipe gestures for image gallery
@@ -1694,26 +1541,8 @@ function optimizeImageGenerationForMobile() {
 }
 
 function addTouchOptimizations() {
-    // Prevent double-tap zoom on buttons but allow proper click events
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(button => {
-        let touchStartTime = 0;
-        
-        button.addEventListener('touchstart', function(e) {
-            touchStartTime = Date.now();
-        });
-        
-        button.addEventListener('touchend', function(e) {
-            const touchDuration = Date.now() - touchStartTime;
-            // Only prevent default for quick taps (not long presses)
-            if (touchDuration < 300) {
-                e.preventDefault();
-                // Small delay to ensure proper button state
-                setTimeout(() => this.click(), 10);
-            }
-        });
-    });
-    
+    // Double-tap zoom is prevented in CSS (touch-action: manipulation)
+
     // Improve scrolling performance
     const scrollableElements = document.querySelectorAll('.chat-container, .response-content, .image-modal-body, .nav-menu');
     scrollableElements.forEach(element => {
@@ -1730,14 +1559,6 @@ function addTouchOptimizations() {
             });
         });
     }
-    
-    // Improve select dropdown on mobile
-    const selects = document.querySelectorAll('select');
-    selects.forEach(select => {
-        select.addEventListener('touchstart', function() {
-            this.focus();
-        });
-    });
 }
 
 function addSwipeGestureToImageGallery() {

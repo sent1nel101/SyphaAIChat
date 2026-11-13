@@ -118,14 +118,14 @@
                     <div class="form-group">
                         <label for="image-model">Model:</label>
                         <select id="image-model">
-                            <option value="stabilityai/stable-diffusion-2-1" selected>Stable Diffusion 2.1 (Recommended)</option>
-                            <option value="dreamlike-art/dreamlike-anime-1.0">Dreamlike Anime (Artistic)</option>
-                            <option value="prompthero/openjourney">OpenJourney (Midjourney Style)</option>
+                            <option value="black-forest-labs/FLUX.1-schnell" selected>FLUX.1 Schnell (Fast, Recommended)</option>
+                            <option value="stabilityai/stable-diffusion-xl-base-1.0">Stable Diffusion XL</option>
+                            <option value="Qwen/Qwen-Image">Qwen-Image (Best with text in images)</option>
                         </select>
                     </div>
                     <div class="form-actions">
                         <button id="generate-image-btn" class="generate-btn">🎨 Generate Image</button>
-                        <button id="setup-replicate-btn" class="setup-btn" style="display: none;">⚙️ Setup HF Token (Required)</button>
+                        <button id="setup-replicate-btn" class="setup-btn" style="display: none;">ℹ️ HF Token Required</button>
                     </div>
                 </div>
                 <div class="image-gallery" id="image-gallery">
@@ -156,7 +156,7 @@
                     </div>
                     <div class="form-actions">
                         <button id="generate-video-btn" class="generate-btn">🎬 Generate Video</button>
-                        <button id="setup-video-btn" class="setup-btn" style="display: none;">⚙️ Setup HF Token (Required)</button>
+                        <button id="setup-video-btn" class="setup-btn" style="display: none;">ℹ️ HF Token Required</button>
                     </div>
                 </div>
                 <div class="video-gallery" id="video-gallery">

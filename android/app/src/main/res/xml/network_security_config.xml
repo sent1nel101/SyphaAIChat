@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The Sypha server (app.py) serves plain HTTP on port 5000, and the server
+    address is entered at runtime, so cleartext must be allowed globally.
+    If you put the server behind HTTPS (reverse proxy, Tailscale Serve,
+    Cloudflare Tunnel, ...), change cleartextTrafficPermitted to "false".
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
